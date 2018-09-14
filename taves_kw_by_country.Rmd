@@ -32,8 +32,7 @@ knitr::opts_chunk$set(echo=F, warning=F, cache=F, message=F)
 ```
 
 ```{r, include = F}
-library(knitr)
-library(kableExtra)
+# library(kableExtra)
 library(tidyverse)
 library(readxl)
 library(psych)
@@ -164,7 +163,7 @@ heatmap_fun(efa_vss_US) +
 
 <P style="page-break-before: always">
 ```{r, results = "asis"}
-table_fun(fa = efa_vss_US) %>% kable_styling(font_size = 10)
+table_fun(fa = efa_vss_US)
 ```
 
 <P style="page-break-before: always">
@@ -188,7 +187,7 @@ heatmap_fun(efa_k_US) +
 
 <P style="page-break-before: always">
 ```{r, results = "asis"}
-table_fun(efa_k_US) %>% kable_styling(font_size = 10)
+table_fun(efa_k_US)
 ```
 
 <P style="page-break-before: always">
@@ -212,7 +211,7 @@ heatmap_fun(efa_a_US) +
 
 <P style="page-break-before: always">
 ```{r, results = "asis"}
-table_fun(efa_a_US) %>% kable_styling(font_size = 10)
+table_fun(efa_a_US)
 ```
 
 <P style="page-break-before: always">
@@ -233,7 +232,7 @@ heatmap_fun(efa_8_US) +
 
 <P style="page-break-before: always">
 ```{r, results = "asis"}
-table_fun(fa = efa_8_US) %>% kable_styling(font_size = 10)
+table_fun(fa = efa_8_US)
 ```
 
 
@@ -293,7 +292,7 @@ heatmap_fun(efa_vss_Ghana) +
 
 <P style="page-break-before: always">
 ```{r, results = "asis"}
-table_fun(fa = efa_vss_Ghana) %>% kable_styling(font_size = 10)
+table_fun(fa = efa_vss_Ghana)
 ```
 
 <P style="page-break-before: always">
@@ -317,7 +316,7 @@ heatmap_fun(efa_k_Ghana) +
 
 <P style="page-break-before: always">
 ```{r, results = "asis"}
-table_fun(efa_k_Ghana) %>% kable_styling(font_size = 10)
+table_fun(efa_k_Ghana)
 ```
 
 <P style="page-break-before: always">
@@ -341,7 +340,7 @@ heatmap_fun(efa_a_Ghana) +
 
 <P style="page-break-before: always">
 ```{r, results = "asis"}
-table_fun(efa_a_Ghana) %>% kable_styling(font_size = 10)
+table_fun(efa_a_Ghana)
 ```
 
 <P style="page-break-before: always">
@@ -362,7 +361,7 @@ heatmap_fun(efa_8_Ghana) +
 
 <P style="page-break-before: always">
 ```{r, results = "asis"}
-table_fun(fa = efa_8_Ghana) %>% kable_styling(font_size = 10)
+table_fun(fa = efa_8_Ghana)
 ```
 
 
@@ -422,7 +421,7 @@ heatmap_fun(efa_vss_Thailand) +
 
 <P style="page-break-before: always">
 ```{r, results = "asis"}
-table_fun(fa = efa_vss_Thailand) %>% kable_styling(font_size = 10)
+table_fun(fa = efa_vss_Thailand)
 ```
 
 <P style="page-break-before: always">
@@ -446,7 +445,7 @@ heatmap_fun(efa_k_Thailand) +
 
 <P style="page-break-before: always">
 ```{r, results = "asis"}
-table_fun(efa_k_Thailand) %>% kable_styling(font_size = 10)
+table_fun(efa_k_Thailand)
 ```
 
 <P style="page-break-before: always">
@@ -470,7 +469,7 @@ heatmap_fun(efa_a_Thailand) +
 
 <P style="page-break-before: always">
 ```{r, results = "asis"}
-table_fun(efa_a_Thailand) %>% kable_styling(font_size = 10)
+table_fun(efa_a_Thailand)
 ```
 
 <P style="page-break-before: always">
@@ -491,7 +490,7 @@ heatmap_fun(efa_8_Thailand) +
 
 <P style="page-break-before: always">
 ```{r, results = "asis"}
-table_fun(fa = efa_8_Thailand) %>% kable_styling(font_size = 10)
+table_fun(fa = efa_8_Thailand)
 ```
 
 
@@ -551,7 +550,7 @@ heatmap_fun(efa_vss_China) +
 
 <P style="page-break-before: always">
 ```{r, results = "asis"}
-table_fun(fa = efa_vss_China) %>% kable_styling(font_size = 10)
+table_fun(fa = efa_vss_China)
 ```
 
 <P style="page-break-before: always">
@@ -575,7 +574,7 @@ heatmap_fun(efa_k_China) +
 
 <P style="page-break-before: always">
 ```{r, results = "asis"}
-table_fun(efa_k_China) %>% kable_styling(font_size = 10)
+table_fun(efa_k_China)
 ```
 
 <P style="page-break-before: always">
@@ -599,7 +598,7 @@ heatmap_fun(efa_a_China) +
 
 <P style="page-break-before: always">
 ```{r, results = "asis"}
-table_fun(efa_a_China) %>% kable_styling(font_size = 10)
+table_fun(efa_a_China)
 ```
 
 <P style="page-break-before: always">
@@ -620,7 +619,7 @@ heatmap_fun(efa_8_China) +
 
 <P style="page-break-before: always">
 ```{r, results = "asis"}
-table_fun(fa = efa_8_China) %>% kable_styling(font_size = 10)
+table_fun(fa = efa_8_China)
 ```
 
 
@@ -680,7 +679,7 @@ heatmap_fun(efa_vss_Vanuatu) +
 
 <P style="page-break-before: always">
 ```{r, results = "asis"}
-table_fun(fa = efa_vss_Vanuatu) %>% kable_styling(font_size = 10)
+table_fun(fa = efa_vss_Vanuatu)
 ```
 
 <P style="page-break-before: always">
@@ -704,7 +703,7 @@ heatmap_fun(efa_k_Vanuatu) +
 
 <P style="page-break-before: always">
 ```{r, results = "asis"}
-table_fun(efa_k_Vanuatu) %>% kable_styling(font_size = 10)
+table_fun(efa_k_Vanuatu)
 ```
 
 <P style="page-break-before: always">
@@ -728,7 +727,7 @@ heatmap_fun(efa_a_Vanuatu) +
 
 <P style="page-break-before: always">
 ```{r, results = "asis"}
-table_fun(efa_a_Vanuatu) %>% kable_styling(font_size = 10)
+table_fun(efa_a_Vanuatu)
 ```
 
 <P style="page-break-before: always">
@@ -749,7 +748,7 @@ heatmap_fun(efa_8_Vanuatu) +
 
 <P style="page-break-before: always">
 ```{r, results = "asis"}
-table_fun(fa = efa_8_Vanuatu) %>% kable_styling(font_size = 10)
+table_fun(fa = efa_8_Vanuatu)
 ```
 
 
