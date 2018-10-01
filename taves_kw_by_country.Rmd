@@ -1,6 +1,6 @@
 ---
 title: "KW Taves data by site"
-date: 2018-09-13
+date: 2018-10-01
 output: 
   html_notebook:
     toc: true
@@ -11,14 +11,14 @@ output:
 
 This is Kara's second attempt at looking at the Taves data *by site*, looking only at participant's endorsements of whether or not they had had certain experiences (not their assessment of what they meant, etc.).
 
-Below are plots of exploratory factor analyses (one per site) using polychoric correlations (since we're working with yes/no responses), an orthogonal rotation ("varimax," which forces factors to be uncorrelated with each other - this is what Ann has used in previous work), and a "maximum likelihoood" factoring method (for comparison with Ann's previous work). 
+Below are plots of exploratory factor analyses (one per site) using polychoric correlations (since we're working with yes/no responses), an orthogonal rotation ("varimax," which forces factors to be uncorrelated with each other - this is what Ann has used in previous work), and a "maximum likelihoood" factoring method (for comparison with Barlev's previous work). 
 
 There are many different ways to decide how many factors to retain, and different methods make different suggestions. For now, I've assessed 4 ways of deciding this:
 
 1. Using "parallel analysis," which compares the correlation structure of the actual data to the correlation structure of simulated "random" datasets of the same size.  In our current case, with the TRUE/FALSE responses, I think this generally tells us to retain more factors than we really should - some of these factors are really only capturing one or two items. **I am not going to include this here - it takes forever to run and I just don't think it works well for our current purposes.**
 2. Minimizing the Bayesian Information Criterion ("BIC"), which is one way of balancing the goals of (a) getting a factor analysis model that fits the data well and (b) not having too many factors.  In our case, this suggests 8 factors for all sites (which is surprising and interesting).
 3. My own "home-brewed" protocol, retaining factors that account for at least 5% of the shared variance before rtoation, have "eigenvalues" >1 before rotation, and are the "dominant" factor (the factor with the strongest factor loading) for at least one item after rotation.  In our current case, this generally tells us to retain just 2 or 3 factors for many but not all sites.
-4. My best approximation of Ann's previous protocol (not exactly the same, but done in a way that can be automated instead of us making separate judgment calls - for now at least!). 
+4. My best approximation of Barlev's previous protocol (not exactly the same, but done in a way that can be automated instead of us making separate judgment calls - for now at least!). 
 5. Deciding to retain the same number of factors for all sites. In our case, I chose 8. This could be justified by approach #2, above - though there's always a possibility that a factor doesn't account for much of the variance, doesn't make much sense, or really only captures one or two of the items (rather than a real cluster of related items). 
 
 To help us think through this, I've included a table of the items that are more strongly positively related to each factor, for each site, for each of these solutions. (This is redundant with the plot for that solution, but easier to read.)
@@ -191,27 +191,27 @@ table_fun(efa_k_US)
 ```
 
 <P style="page-break-before: always">
-### 4. Kara's take on Ann's home-brewed approach
+### 4. Kara's take on Barlev's home-brewed approach
 
 ```{r, include = F}
-nfact_a_US <- reten_fun_ann(d_US, chosen_rot)
+nfact_b_US <- reten_fun_ann(d_US, chosen_rot)
 ```
 
 ```{r}
-efa_a_US <- fa(d_US, nfactors = nfact_a_US,
+efa_b_US <- fa(d_US, nfactors = nfact_b_US,
                cor = chosen_cor, rot = chosen_rot, fm = chosen_fm)
 ```
 
-Kara's take on Ann's home-brewed approach suggests retaining `r nfact_a_US` factors:
+Kara's take on Barlev's home-brewed approach suggests retaining `r nfact_b_US` factors:
 
 ```{r, fig.width = 10, fig.asp = 0.5}
-heatmap_fun(efa_a_US) +
-  labs(title = "US factor loadings: Kara's take on Ann's home-brewed approach")
+heatmap_fun(efa_b_US) +
+  labs(title = "US factor loadings: Kara's take on Barlev's home-brewed approach")
 ```
 
 <P style="page-break-before: always">
 ```{r, results = "asis"}
-table_fun(efa_a_US)
+table_fun(efa_b_US)
 ```
 
 <P style="page-break-before: always">
@@ -320,27 +320,27 @@ table_fun(efa_k_Ghana)
 ```
 
 <P style="page-break-before: always">
-### 4. Kara's take on Ann's home-brewed approach
+### 4. Kara's take on Barlev's home-brewed approach
 
 ```{r, include = F}
-nfact_a_Ghana <- reten_fun_ann(d_Ghana, chosen_rot)
+nfact_b_Ghana <- reten_fun_ann(d_Ghana, chosen_rot)
 ```
 
 ```{r}
-efa_a_Ghana <- fa(d_Ghana, nfactors = nfact_a_Ghana,
+efa_b_Ghana <- fa(d_Ghana, nfactors = nfact_b_Ghana,
                cor = chosen_cor, rot = chosen_rot, fm = chosen_fm)
 ```
 
-Kara's take on Ann's home-brewed approach suggests retaining `r nfact_a_Ghana` factors:
+Kara's take on Barlev's home-brewed approach suggests retaining `r nfact_b_Ghana` factors:
 
 ```{r, fig.width = 10, fig.asp = 0.5}
-heatmap_fun(efa_a_Ghana) +
-  labs(title = "Ghana factor loadings: Kara's take on Ann's home-brewed approach")
+heatmap_fun(efa_b_Ghana) +
+  labs(title = "Ghana factor loadings: Kara's take on Barlev's home-brewed approach")
 ```
 
 <P style="page-break-before: always">
 ```{r, results = "asis"}
-table_fun(efa_a_Ghana)
+table_fun(efa_b_Ghana)
 ```
 
 <P style="page-break-before: always">
@@ -449,27 +449,27 @@ table_fun(efa_k_Thailand)
 ```
 
 <P style="page-break-before: always">
-### 4. Kara's take on Ann's home-brewed approach
+### 4. Kara's take on Barlev's home-brewed approach
 
 ```{r, include = F}
-nfact_a_Thailand <- reten_fun_ann(d_Thailand, chosen_rot)
+nfact_b_Thailand <- reten_fun_ann(d_Thailand, chosen_rot)
 ```
 
 ```{r}
-efa_a_Thailand <- fa(d_Thailand, nfactors = nfact_a_Thailand,
+efa_b_Thailand <- fa(d_Thailand, nfactors = nfact_b_Thailand,
                cor = chosen_cor, rot = chosen_rot, fm = chosen_fm)
 ```
 
-Kara's take on Ann's home-brewed approach suggests retaining `r nfact_a_Thailand` factors:
+Kara's take on Barlev's home-brewed approach suggests retaining `r nfact_b_Thailand` factors:
 
 ```{r, fig.width = 10, fig.asp = 0.5}
-heatmap_fun(efa_a_Thailand) +
-  labs(title = "Thailand factor loadings: Kara's take on Ann's home-brewed approach")
+heatmap_fun(efa_b_Thailand) +
+  labs(title = "Thailand factor loadings: Kara's take on Barlev's home-brewed approach")
 ```
 
 <P style="page-break-before: always">
 ```{r, results = "asis"}
-table_fun(efa_a_Thailand)
+table_fun(efa_b_Thailand)
 ```
 
 <P style="page-break-before: always">
@@ -578,27 +578,27 @@ table_fun(efa_k_China)
 ```
 
 <P style="page-break-before: always">
-### 4. Kara's take on Ann's home-brewed approach
+### 4. Kara's take on Barlev's home-brewed approach
 
 ```{r, include = F}
-nfact_a_China <- reten_fun_ann(d_China, chosen_rot)
+nfact_b_China <- reten_fun_ann(d_China, chosen_rot)
 ```
 
 ```{r}
-efa_a_China <- fa(d_China, nfactors = nfact_a_China,
+efa_b_China <- fa(d_China, nfactors = nfact_b_China,
                cor = chosen_cor, rot = chosen_rot, fm = chosen_fm)
 ```
 
-Kara's take on Ann's home-brewed approach suggests retaining `r nfact_a_China` factors:
+Kara's take on Barlev's home-brewed approach suggests retaining `r nfact_b_China` factors:
 
 ```{r, fig.width = 10, fig.asp = 0.5}
-heatmap_fun(efa_a_China) +
-  labs(title = "China factor loadings: Kara's take on Ann's home-brewed approach")
+heatmap_fun(efa_b_China) +
+  labs(title = "China factor loadings: Kara's take on Barlev's home-brewed approach")
 ```
 
 <P style="page-break-before: always">
 ```{r, results = "asis"}
-table_fun(efa_a_China)
+table_fun(efa_b_China)
 ```
 
 <P style="page-break-before: always">
@@ -707,27 +707,27 @@ table_fun(efa_k_Vanuatu)
 ```
 
 <P style="page-break-before: always">
-### 4. Kara's take on Ann's home-brewed approach
+### 4. Kara's take on Barlev's home-brewed approach
 
 ```{r, include = F}
-nfact_a_Vanuatu <- reten_fun_ann(d_Vanuatu, chosen_rot)
+nfact_b_Vanuatu <- reten_fun_ann(d_Vanuatu, chosen_rot)
 ```
 
 ```{r}
-efa_a_Vanuatu <- fa(d_Vanuatu, nfactors = nfact_a_Vanuatu,
+efa_b_Vanuatu <- fa(d_Vanuatu, nfactors = nfact_b_Vanuatu,
                cor = chosen_cor, rot = chosen_rot, fm = chosen_fm)
 ```
 
-Kara's take on Ann's home-brewed approach suggests retaining `r nfact_a_Vanuatu` factors:
+Kara's take on Barlev's home-brewed approach suggests retaining `r nfact_b_Vanuatu` factors:
 
 ```{r, fig.width = 10, fig.asp = 0.5}
-heatmap_fun(efa_a_Vanuatu) +
-  labs(title = "Vanuatu factor loadings: Kara's take on Ann's home-brewed approach")
+heatmap_fun(efa_b_Vanuatu) +
+  labs(title = "Vanuatu factor loadings: Kara's take on Barlev's home-brewed approach")
 ```
 
 <P style="page-break-before: always">
 ```{r, results = "asis"}
-table_fun(efa_a_Vanuatu)
+table_fun(efa_b_Vanuatu)
 ```
 
 <P style="page-break-before: always">
