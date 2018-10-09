@@ -1,7 +1,10 @@
 ---
 title: "KW looking at patterns of prevalence"
 date: 2018-10-08
-output: html_notebook
+output: 
+  html_notebook:
+    toc: true
+    toc_float: true
 ---
 
 This is Kara's attempt to think about patterns of prevalence across sites: What proportion of participants in each site endorsed each question, and can we find "clusters" of questions that were either similar in prevalence across sites or difference across sites in various ways?
@@ -386,3 +389,315 @@ hclust_df %>%
 ```
 
 It looks like the prevalence pattern here is generally high (~50%) across the board, and espcially in China (closer to 70%).
+
+
+# Hierarchical clustering pretending we only had 2 sites (US and Ghana)
+
+Here I will try to approximate what it would be like to do this analysis with only 2 sites, to give a sense of whether this would make sense for the 1.0 data. I'll limit the data to only 2 sites (US and Ghana) and do everything I did before.
+
+```{r}
+hclust_prev2 <- d_prev_wide %>% 
+  rownames_to_column("taves_ctry") %>%
+  filter(taves_ctry %in% c("US", "Ghana")) %>%
+  column_to_rownames("taves_ctry") %>%
+  t() %>% 
+  dist() %>% 
+  hclust()
+```
+
+```{r, fig.width = 8, fig.asp = 1}
+hclust_prev2 %>% 
+  as.dendrogram() %>% 
+  set("labels_col", k = 8, value = c("#a6cee3", "#1f78b4", "#b2df8a",
+                                     "#33a02c", "#fb9a99", "#e31a1c", 
+                                     "#fdbf6f", "#ff7f00", "#cab2d6")) %>% 
+  plot(horiz = T, xlim = c(1.5, -12), axes = F)
+```
+
+Here, 8 seems like a reasonable number of clusters to look at. I wish that the light orange cluster weren't a cluster of 1, but it requires going down to just 5 clusters to get there, which means that the other clusters get quite large.
+
+```{r}
+hclust_df2 <- data.frame(cluster = cutree(hclust_prev2, 8)) %>%
+  rownames_to_column("question_text") %>%
+  full_join(d_prev %>% filter(taves_ctry %in% c("US", "Ghana"))) %>%
+  left_join(d_prev %>% 
+              filter(taves_ctry == "US") %>% 
+              distinct(question, prev) %>% 
+              rename("US_prev" = "prev")) %>%
+  arrange(cluster, desc(US_prev), taves_ctry)
+```
+
+## Cluster 1
+
+Following the 5-site analysis above, here I'll plot the prevalence of endorsements in each site for each of the questions in Cluster 1. (This is the pink cluster above.)
+
+I'll plot these questions in descending order of their prevalence in the US sample, just as a point of reference.
+
+```{r, fig.width = 5, fig.asp = 1}
+hclust_df2 %>%
+  filter(cluster == 1) %>%
+  mutate(question_text = gsub('(.{1,40})(\\s|$)', '\\1\n', question_text)) %>%
+  ggplot(aes(x = reorder(question_text, US_prev), y = prev,
+             fill = taves_ctry, color = taves_ctry)) +
+  facet_grid(~ taves_ctry, scales = "free") +
+  # geom_hline(yintercept = 0.5, lty = 2) +
+  geom_bar(stat = "identity", position = "identity", size = 1, alpha = 0.5) +
+  scale_fill_brewer(palette = "Dark2", guide = "none") +
+  scale_color_brewer(palette = "Dark2", guide = "none") +
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.5)) +
+  labs(title = "Cluster: 1",
+       x = "", y = "proportion saying YES") +
+  theme_bw() +
+  coord_flip()
+```
+
+It looks like the prevalence pattern here is moderate in the US (>25%) and higher in Ghana (close to 50%).
+
+
+<P style="page-break-before: always">
+## Cluster 2
+
+Now I'll plot the prevalence of endorsements in each site for each of the questions in Cluster 2 (the light green cluster in the overall plot).
+
+Again, I'll plot these questions in descending order of their prevalence in the US sample, just as a point of reference.
+
+```{r, fig.width = 5, fig.asp = 0.5}
+hclust_df2 %>%
+  filter(cluster == 2) %>%
+  mutate(question_text = gsub('(.{1,40})(\\s|$)', '\\1\n', question_text)) %>%
+  ggplot(aes(x = reorder(question_text, US_prev), y = prev,
+             fill = taves_ctry, color = taves_ctry)) +
+  facet_grid(~ taves_ctry, scales = "free") +
+  # geom_hline(yintercept = 0.5, lty = 2) +
+  geom_bar(stat = "identity", position = "identity", size = 1, alpha = 0.5) +
+  scale_fill_brewer(palette = "Dark2", guide = "none") +
+  scale_color_brewer(palette = "Dark2", guide = "none") +
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.5)) +
+  labs(title = "Cluster: 2",
+       x = "", y = "proportion saying YES") +
+  theme_bw() +
+  coord_flip()
+```
+
+It looks like the prevalence pattern here is low in the US (<10%) and moderate in Ghana (~25%).
+
+
+<P style="page-break-before: always">
+## Cluster 3
+
+Now I'll plot the prevalence of endorsements in each site for each of the questions in Cluster 3 (the dark green cluster in the overall plot).
+
+Again, I'll plot these questions in descending order of their prevalence in the US sample, just as a point of reference.
+
+```{r, fig.width = 5, fig.asp = 0.7}
+hclust_df2 %>%
+  filter(cluster == 3) %>%
+  mutate(question_text = gsub('(.{1,40})(\\s|$)', '\\1\n', question_text)) %>%
+  ggplot(aes(x = reorder(question_text, US_prev), y = prev,
+             fill = taves_ctry, color = taves_ctry)) +
+  facet_grid(~ taves_ctry, scales = "free") +
+  # geom_hline(yintercept = 0.5, lty = 2) +
+  geom_bar(stat = "identity", position = "identity", size = 1, alpha = 0.5) +
+  scale_fill_brewer(palette = "Dark2", guide = "none") +
+  scale_color_brewer(palette = "Dark2", guide = "none") +
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.5)) +
+  labs(title = "Cluster: 3",
+       x = "", y = "proportion saying YES") +
+  theme_bw() +
+  coord_flip()
+```
+
+It looks like the prevalence pattern here is relatively high across the board (>50%).
+
+
+<P style="page-break-before: always">
+## Cluster 4
+
+Now I'll plot the prevalence of endorsements in each site for each of the questions in Cluster 4 (the dark blue cluster in the overall plot).
+
+Again, I'll plot these questions in descending order of their prevalence in the US sample, just as a point of reference.
+
+```{r, fig.width = 5, fig.asp = 1}
+hclust_df2 %>%
+  filter(cluster == 4) %>%
+  mutate(question_text = gsub('(.{1,40})(\\s|$)', '\\1\n', question_text)) %>%
+  ggplot(aes(x = reorder(question_text, US_prev), y = prev,
+             fill = taves_ctry, color = taves_ctry)) +
+  facet_grid(~ taves_ctry, scales = "free") +
+  # geom_hline(yintercept = 0.5, lty = 2) +
+  geom_bar(stat = "identity", position = "identity", size = 1, alpha = 0.5) +
+  scale_fill_brewer(palette = "Dark2", guide = "none") +
+  scale_color_brewer(palette = "Dark2", guide = "none") +
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.5)) +
+  labs(title = "Cluster: 4",
+       x = "", y = "proportion saying YES") +
+  theme_bw() +
+  coord_flip()
+```
+
+It looks like the prevalence pattern here is generally moderate across the two sites (~25%), slightly higher in Ghana (~40%).
+
+
+<P style="page-break-before: always">
+## Cluster 5
+
+Now I'll plot the prevalence of endorsements in each site for each of the questions in Cluster 5 (the dark red cluster in the overall plot).
+
+Again, I'll plot these questions in descending order of their prevalence in the US sample, just as a point of reference.
+
+```{r, fig.width = 5, fig.asp = 0.6}
+hclust_df2 %>%
+  filter(cluster == 5) %>%
+  mutate(question_text = gsub('(.{1,40})(\\s|$)', '\\1\n', question_text)) %>%
+  ggplot(aes(x = reorder(question_text, US_prev), y = prev,
+             fill = taves_ctry, color = taves_ctry)) +
+  facet_grid(~ taves_ctry, scales = "free") +
+  # geom_hline(yintercept = 0.5, lty = 2) +
+  geom_bar(stat = "identity", position = "identity", size = 1, alpha = 0.5) +
+  scale_fill_brewer(palette = "Dark2", guide = "none") +
+  scale_color_brewer(palette = "Dark2", guide = "none") +
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.5)) +
+  labs(title = "Cluster: 5",
+       x = "", y = "proportion saying YES") +
+  theme_bw() +
+  coord_flip()
+```
+
+It looks like the prevalence pattern here is generally comparable and moderate (close to 50%) across the board - if anything, perhaps a little higher in the US on a couple of items.
+
+
+<P style="page-break-before: always">
+## Cluster 6
+
+Now I'll plot the prevalence of endorsements in each site for each of the questions in Cluster 6 (the light blue cluster in the overall plot).
+
+Again, I'll plot these questions in descending order of their prevalence in the US sample, just as a point of reference.
+
+```{r, fig.width = 5, fig.asp = 0.4}
+hclust_df2 %>%
+  filter(cluster == 6) %>%
+  mutate(question_text = gsub('(.{1,40})(\\s|$)', '\\1\n', question_text)) %>%
+  ggplot(aes(x = reorder(question_text, US_prev), y = prev,
+             fill = taves_ctry, color = taves_ctry)) +
+  facet_grid(~ taves_ctry, scales = "free") +
+  # geom_hline(yintercept = 0.5, lty = 2) +
+  geom_bar(stat = "identity", position = "identity", size = 1, alpha = 0.5) +
+  scale_fill_brewer(palette = "Dark2", guide = "none") +
+  scale_color_brewer(palette = "Dark2", guide = "none") +
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.5)) +
+  labs(title = "Cluster: 6",
+       x = "", y = "proportion saying YES") +
+  theme_bw() +
+  coord_flip()
+```
+
+It looks like the prevalence pattern here is very low in the US (<10%) and slightly higher in Ghana (~20%).
+
+<P style="page-break-before: always">
+## Cluster 7
+
+Now I'll plot the prevalence of endorsements in each site for each of the questions in Cluster 7 (the dark orange cluster in the overall plot).
+
+Again, I'll plot these questions in descending order of their prevalence in the US sample, just as a point of reference.
+
+```{r, fig.width = 5, fig.asp = 0.4}
+hclust_df2 %>%
+  filter(cluster == 7) %>%
+  mutate(question_text = gsub('(.{1,40})(\\s|$)', '\\1\n', question_text)) %>%
+  ggplot(aes(x = reorder(question_text, US_prev), y = prev,
+             fill = taves_ctry, color = taves_ctry)) +
+  facet_grid(~ taves_ctry, scales = "free") +
+  # geom_hline(yintercept = 0.5, lty = 2) +
+  geom_bar(stat = "identity", position = "identity", size = 1, alpha = 0.5) +
+  scale_fill_brewer(palette = "Dark2", guide = "none") +
+  scale_color_brewer(palette = "Dark2", guide = "none") +
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.5)) +
+  labs(title = "Cluster: 7",
+       x = "", y = "proportion saying YES") +
+  theme_bw() +
+  coord_flip()
+```
+
+It looks like the prevalence pattern here is fairly low in the US (<25%) and high in Ghana (>50%).
+
+
+<P style="page-break-before: always">
+## Cluster 8
+
+Now I'll plot the prevalence of endorsements in each site for each of the questions in Cluster 8 (the other half of the dark green cluster in the overall plot).
+
+Again, I'll plot these questions in descending order of their prevalence in the US sample, just as a point of reference.
+
+```{r, fig.width = 5, fig.asp = 0.2}
+hclust_df2 %>%
+  filter(cluster == 8) %>%
+  mutate(question_text = gsub('(.{1,40})(\\s|$)', '\\1\n', question_text)) %>%
+  ggplot(aes(x = reorder(question_text, US_prev), y = prev,
+             fill = taves_ctry, color = taves_ctry)) +
+  facet_grid(~ taves_ctry, scales = "free") +
+  # geom_hline(yintercept = 0.5, lty = 2) +
+  geom_bar(stat = "identity", position = "identity", size = 1, alpha = 0.5) +
+  scale_fill_brewer(palette = "Dark2", guide = "none") +
+  scale_color_brewer(palette = "Dark2", guide = "none") +
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.5)) +
+  labs(title = "Cluster: 8",
+       x = "", y = "proportion saying YES") +
+  theme_bw() +
+  coord_flip()
+```
+
+This is one item and it happens to be moderate inthe US and high in Ghana. I wouldn't make much of this factor.
+
+<P style="page-break-before: always">
+
+```{r, include = F}
+# Comparing cluster analyses
+full_join(hclust_df %>%
+            distinct(cluster, question, question_text) %>%
+            rename(cluster_5sites = cluster),
+          hclust_df2 %>%
+            distinct(cluster, question) %>%
+            rename(cluster_2sites = cluster)) %>%
+  select(question, question_text, cluster_5sites, cluster_2sites) %>%
+  count(cluster_5sites, cluster_2sites) %>%
+  group_by(cluster_5sites) %>%
+  mutate(prop = n/sum(n)) %>%
+  top_n(1, prop) %>% 
+  arrange(desc(prop))
+```
+
+```{r, include = F}
+hclust_prev3 <- d_prev_wide %>% 
+  rownames_to_column("taves_ctry") %>%
+  filter(!taves_ctry %in% c("US", "Ghana")) %>%
+  column_to_rownames("taves_ctry") %>%
+  t() %>% 
+  dist() %>% 
+  hclust()
+```
+
+```{r, include = F}
+hclust_df3 <- data.frame(cluster = cutree(hclust_prev3, 8)) %>%
+  rownames_to_column("question_text") %>%
+  full_join(d_prev %>% filter(!taves_ctry %in% c("US", "Ghana"))) %>%
+  left_join(d_prev %>% 
+              filter(taves_ctry == "US") %>% 
+              distinct(question, prev) %>% 
+              rename("US_prev" = "prev")) %>%
+  arrange(cluster, desc(US_prev), taves_ctry)
+```
+
+```{r, include = F}
+full_join(hclust_df2 %>%
+            distinct(cluster, question, question_text) %>%
+            rename(cluster_USGH = cluster),
+          hclust_df3 %>%
+            distinct(cluster, question) %>%
+            rename(cluster_THCHVT = cluster)) %>%
+  select(question, question_text, cluster_USGH, cluster_THCHVT) %>%
+  count(cluster_USGH, cluster_THCHVT) %>%
+  group_by(cluster_USGH) %>%
+  mutate(prop = n/sum(n)) %>%
+  top_n(1, prop) %>% 
+  arrange(desc(prop))
+```
