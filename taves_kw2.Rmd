@@ -1,0 +1,521 @@
+---
+title: "KW second pass at Taves data"
+date: 2018-12-10
+output: html_notebook
+---
+
+This is Kara's second pass at looking at the Taves data, looking only at participant's endorsements of whether or not they had had certain experiences (not their assessment of what they meant, etc.).
+
+```{r global_options, include = F}
+knitr::opts_chunk$set(echo=F, warning=F, cache=F, message=F)
+```
+
+```{r, include = F}
+library(tidyverse)
+library(readxl)
+library(psych)
+library(factoextra)
+```
+
+```{r, include = F}
+d0 <- read_excel("/Users/kweisman/Documents/Research (Stanford)/Projects/Templeton Grant/DATA WRANGLING/Taves/data/Taves_full_dataset.xlsx", sheet = 5)[-1,] # remove question text
+
+question_key <- read_excel("/Users/kweisman/Documents/Research (Stanford)/Projects/Templeton Grant/DATA WRANGLING/Taves/data/Taves_full_dataset.xlsx", sheet = 3)[,1:5] # only relevant columns
+
+n_iter <- 5000
+```
+
+```{r, include = F}
+d_base <- d0 %>%
+  data.frame() %>%
+  select(taves_subj, taves_01:taves_60e) %>%
+  select(-ends_with("a"), -ends_with("b"), -ends_with("c"), 
+         -ends_with("d"), -ends_with("e")) %>%
+  distinct() %>%
+  filter(taves_subj != "40548") %>% # remove one duplicate
+  # column_to_rownames("taves_subj") %>%
+  mutate_at(vars(-taves_subj),
+            funs(factor(tolower(.), levels = c("no", "yes")))) %>%
+  mutate_at(vars(-taves_subj),
+            funs(num = as.numeric(.) - 1)) %>%
+  column_to_rownames("taves_subj") %>%
+  select(-starts_with("taves_53"))
+
+d_base_num <- d_base %>%
+  select(ends_with("_num"))
+```
+
+Notes: per our conversation with Nikki, we are dropping one question (#53), which was a repeated question in all sites except for China.
+
+
+# Overall counts
+
+First, let's look at the overall counts of "yes" responses, by site:
+
+```{r}
+d_counts <- d_base_num %>% 
+  select(ends_with("_num")) %>%
+  rownames_to_column("taves_subj") %>%
+  gather(question, response, -taves_subj) %>%
+  group_by(taves_subj) %>%
+  summarise(total = sum(response, na.rm = T)) %>%
+  ungroup() %>%
+  left_join(d0 %>% select(taves_subj, taves_ctry)) %>%
+  distinct() %>%
+  mutate(taves_ctry = factor(taves_ctry,
+                             levels = c("US", "Thailand", "China", 
+                                        "Ghana", "Vanuatu")))
+```
+
+```{r}
+d_counts %>% 
+  group_by(taves_ctry) %>% 
+  summarise(n = n(),
+            mean = mean(total, na.rm = T),
+            sd = sd(total, na.rm = T),
+            median = median(total, na.rm = T)) %>%
+  data.frame()
+```
+
+And now let's compare each country to the country with the next-most "yes" responses: contrast #1 will be US vs. Thailand, #2 will be Thailand vs. China, etc.:
+
+```{r}
+contrasts(d_counts$taves_ctry) <- contr.helmert(5)
+# contrasts(d_counts$taves_ctry)
+
+r <- lm(total ~ taves_ctry, d_counts)
+summary(r)
+```
+
+This approach suggests that all of these comparisons are significant, except for the US vs. Thailand (_p_ = `r round(summary(r)$coefficients[2, 4], 3)`).
+
+# Polychoric factor analysis
+
+```{r, include = F}
+# WLS is the first method tried that doesn't through convergence/score errors
+fa.parallel(d_base_num, cor = "poly", fm = "wls") 
+```
+
+```{r, include = F}
+VSS(d_base_num, cor = "poly", rotate = "oblimin", fm = "wls")
+```
+
+
+```{r, include = F}
+# make function for implementing criteria
+check_ok <- function(p, k) {
+  a <- (p-k)^2
+  b <- p+k
+  return(ifelse(a>b, TRUE, FALSE))
+}
+
+max_ok <- function(p) {
+  df_check <- data.frame()
+  for(i in 1:p){
+    df_check[i,"check"] <- check_ok(p,i)
+  }
+  max <- df_check %>% filter(check) %>% nrow()
+  return(max)
+}
+
+reten_fun <- function(df, rot_type = c("oblimin", "varimax", "none"),
+                      fm_type = c("minres", "ML", "wls")){
+  
+  # figure out max number of factors to retain
+  n_var <- length(names(df))
+  max_k <- max_ok(n_var)
+  
+  # run efa with max factors, unrotated
+  fa_unrot <- fa(df, nfactors = max_k, rotate = "none", 
+                 scores = "tenBerge", impute = "median")
+  eigen <- fa_unrot$Vaccounted %>%
+    data.frame() %>%
+    rownames_to_column("param") %>%
+    gather(factor, value, -param) %>%
+    spread(param, value) %>%
+    filter(`SS loadings` > 1, `Proportion Explained` > 0.05)
+  retain_k <- nrow(eigen)
+  
+  fa_rot <- fa(df, nfactors = retain_k, rotate = rot_type,
+               scores = "tenBerge", impute = "median")
+  
+  loadings <- fa_rot$loadings[] %>%
+    data.frame() %>%
+    rownames_to_column("capacity") %>%
+    gather(factor, loading, -capacity) %>%
+    group_by(capacity) %>%
+    top_n(1, abs(loading)) %>%
+    ungroup() %>%
+    count(factor)
+  retain_k_final <- nrow(loadings)
+  
+  return(retain_k_final)
+}
+```
+
+```{r, include = F}
+reten_fun(d_base_num, rot_type = "oblimin", fm_type = "wls")
+```
+
+## Factor loadings
+
+```{r}
+loadings <- fa(d_base_num, cor = "poly", nfactors = 8, rotate = "oblimin", fm = "wls")$loadings[] %>% 
+  fa.sort() %>%
+  data.frame() %>%
+  rownames_to_column("question") %>%
+  mutate(question = gsub("_num", "", question)) %>%
+  gather(factor, loading, -question)
+
+loadings_order <- loadings %>%
+  group_by(question) %>%
+  top_n(1, abs(loading)) %>%
+  rownames_to_column("order") %>%
+  mutate(order = as.numeric(order)) %>%
+  ungroup() %>%
+  select(question, order)
+```
+
+```{r}
+loadings_named <- loadings %>%
+  full_join(loadings_order) %>%
+  left_join(question_key %>%
+              rename(question = `Variable Name - VERSION 1 -- all variables in version2 have been renamed to reflect these varaible names`,
+                     question_text = `Question - VERSION 1`)) %>%
+  select(question, question_text, order, factor, loading) %>%
+  mutate(question_text = gsub("\r", " ", question_text),
+         question_text = gsub("\n", " ", question_text),
+         question_text = gsub("  ", " ", question_text),
+         question_text = gsub("‚Äô", "'", question_text),
+         question_text = gsub("‚Äú", "'", question_text),
+         question_text = gsub("‚Äù", "'", question_text)) %>%
+  data.frame()
+
+# loadings_named
+```
+
+Here's a plot of an exploratory factor analysis using polychoric correlations (since we're working with yes/no responses), an oblique rotation ("oblimin," which allows factors to correlate with each other), and a "weighted least squares" factoring method (because other methods throw convergence errors).
+
+It's very important to note that this might not be the "right" number of factors to extract here - different guidelines made different suggestions, ranging from 2 or 3 factors up to 17. 8 factors seemed like something of a middle ground, and seemed to produce sensible results.
+
+```{r, fig.width = 8, fig.asp = 1}
+ggplot(loadings_named %>%
+         mutate(factor = factor(factor,
+                                levels = c("WLS2", "WLS4", "WLS5", "WLS1", 
+                                           "WLS6", "WLS3", "WLS7", "WLS8"))),
+       aes(x = factor, y = reorder(question_text, desc(order)), 
+           fill = loading)) +
+  geom_tile(color = "black") +
+  geom_text(aes(label = format(round(loading, 2), nsmall = 2))) +
+  scale_fill_distiller(palette = "RdYlBu", limits = c(-1, 1),
+                       guide = guide_colorbar(barheight = 20)) +
+  scale_x_discrete(position = "top") +
+  theme_minimal() +
+  labs(x = "", y = "")
+```
+
+## Factor scores
+
+```{r}
+scores <- fa(d_base_num, cor = "poly", nfactors = 8, rotate = "oblimin", fm = "wls")$scores[] %>% 
+  data.frame() %>%
+  rownames_to_column("taves_subj") %>%
+  gather(factor, score, -taves_subj) %>%
+  left_join(d0 %>% select(taves_subj, taves_ctry)) %>%
+  mutate(taves_ctry = factor(taves_ctry,
+                             levels = c("US", "Ghana", "Thailand", "China", "Vanuatu")),
+         factor = factor(factor,
+                         levels = c("WLS2", "WLS4", "WLS5", "WLS1", 
+                                           "WLS6", "WLS3", "WLS7", "WLS8")))
+```
+
+Here's a plot of factor scores, by country, using the factor analysis solution illustrated above. The light, colorful dots are individual participants; the block dots are means by country and 95% bootstrapped confidence intervals. For each factor I printed out the text of the item that loaded most strongly on that factor - see the previous graph for more about the relationships between items and factors.
+
+```{r, fig.width = 5, fig.asp = 0.67}
+scores %>%
+  group_by(factor, taves_ctry) %>%
+  langcog::multi_boot_standard(col = "score", na.rm = T) %>%
+  ungroup() %>% 
+  mutate(factor = factor(factor,
+                         levels = c("WLS2", "WLS4", "WLS5", "WLS1",
+                                    "WLS6", "WLS3", "WLS7", "WLS8"))) %>%
+  ggplot(aes(x = taves_ctry)) +
+  facet_wrap(~ factor, nrow = 2) +
+  geom_point(data = scores, 
+             aes(y = score, color = taves_ctry), 
+             alpha = 0.2, position = position_jitter(height = 0)) +
+  geom_pointrange(aes(y = mean, ymin = ci_lower, ymax = ci_upper), 
+                  color = "black") +
+  geom_text(data = loadings_named %>%
+              group_by(factor) %>%
+              top_n(1, abs(loading)) %>%
+              ungroup() %>%
+              mutate(factor = factor(factor,
+                                     levels = c("WLS2", "WLS4", "WLS5", "WLS1",
+                                                "WLS6", "WLS3", "WLS7", "WLS8")),
+                     question_text = paste0("example item: ", question_text),
+                     question_text = gsub('(.{1,40})(\\s|$)', '\\1\n',
+                                          question_text)),
+            aes(label = question_text),
+            x = 0.5, y = 4, hjust = 0, vjust = 1, size = 3) +
+  scale_color_brewer(palette = "Dark2", guide = "none") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1)) +
+  labs(x = "site", y = "factor score")
+```
+
+```{r}
+d_responses_named <- d_base %>%
+  select(-ends_with("_num")) %>%
+  rownames_to_column("taves_subj") %>%
+  left_join(d0 %>% distinct(taves_subj, taves_ctry)) %>%
+  gather(question, response, -c(taves_subj, taves_ctry)) %>%
+  left_join(loadings_named %>%
+              group_by(question) %>%
+              top_n(1, abs(loading)) %>%
+              ungroup()) %>%
+  mutate(taves_ctry = factor(taves_ctry,
+                             levels = c("US", "Ghana", "Thailand", 
+                                        "China", "Vanuatu")),
+         factor = factor(factor,
+                         levels = c("WLS2", "WLS4", "WLS5", "WLS1",
+                                    "WLS6", "WLS3", "WLS7", "WLS8")))
+```
+
+## Averages (0-1)
+
+```{r}
+averages <- d_responses_named %>%
+  group_by(factor, taves_ctry, taves_subj) %>%
+  mutate(response_num = recode(response,
+                               "no" = 0, "yes" = 1)) %>%
+  summarise(mean = mean(response_num, na.rm = T)) %>%
+  ungroup() %>%
+  mutate(taves_ctry = factor(taves_ctry,
+                             levels = c("US", "Ghana", "Thailand", 
+                                        "China", "Vanuatu")),
+         factor = factor(factor,
+                         levels = c("WLS2", "WLS4", "WLS5", "WLS1",
+                                    "WLS6", "WLS3", "WLS7", "WLS8")))
+```
+
+Here's a plot of averages (0-1), by country, using the factor analysis solution illustrated above. The light, colorful dots are individual participants; the block dots are means by country and 95% bootstrapped confidence intervals. For each factor I printed out the text of the item that loaded most strongly on that factor - see the previous graph (2 graphs back) for more about the relationships between items and factors.
+
+```{r, fig.width = 5, fig.asp = 0.67}
+averages %>%
+  group_by(factor, taves_ctry) %>%
+  langcog::multi_boot_standard(col = "mean", na.rm = T) %>%
+  ungroup() %>% 
+  mutate(factor = factor(factor,
+                         levels = c("WLS2", "WLS4", "WLS5", "WLS1",
+                                    "WLS6", "WLS3", "WLS7", "WLS8"))) %>%
+  ggplot(aes(x = taves_ctry)) +
+  facet_wrap(~ factor, nrow = 2) +
+  geom_point(data = averages, 
+             aes(y = mean, color = taves_ctry), 
+             alpha = 0.2, position = position_jitter(height = 0)) +
+  geom_pointrange(aes(y = mean, ymin = ci_lower, ymax = ci_upper), 
+                  color = "black") +
+  geom_text(data = loadings_named %>%
+              group_by(factor) %>%
+              top_n(1, abs(loading)) %>%
+              ungroup() %>%
+              mutate(factor = factor(factor,
+                                     levels = c("WLS2", "WLS4", "WLS5", "WLS1",
+                                                "WLS6", "WLS3", "WLS7", "WLS8")),
+                     question_text = paste0("example item: ", question_text),
+                     question_text = gsub('(.{1,40})(\\s|$)', '\\1\n',
+                                          question_text)),
+            aes(label = question_text),
+            x = 0.5, y = 4, hjust = 0, vjust = 1, size = 3) +
+  scale_color_brewer(palette = "Dark2", guide = "none") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1)) +
+  labs(x = "site", y = "average (0-1)")
+```
+
+
+## Raw data
+
+The following plots show raw data: how many participants said yes to each question, broken down by country. I've split up the questions into which factor they loaded most strongly on (see top left corner of each of the following plots). The dotted line marks the 50% point (50% of participants in that country said "yes" to this question). Note that this does not take into account missing data - i.e., the proportion of "no" responses is not necessarily equal to 1 - the proportion of "yes" responses.
+
+```{r, fig.width = 5, fig.asp = 0.8}
+d_responses_named %>%
+  filter(factor == "WLS2") %>%
+  filter(!is.na(response)) %>%
+  mutate(question_text = gsub('(.{1,40})(\\s|$)', '\\1\n', question_text)) %>%
+  ggplot(aes(x = reorder(question_text, desc(order)), 
+             fill = taves_ctry, alpha = response)) +
+  facet_grid(~ taves_ctry, scales = "free") +
+  geom_bar(position = "fill") +
+  geom_hline(yintercept = 0.5, lty = 2) +
+  scale_fill_brewer(palette = "Dark2", guide = "none") +
+  scale_alpha_discrete(guide = "none") +
+  labs(title = "Factor: WLS2",
+       x = "", y = "proportion saying YES") +
+  theme_bw() +
+  coord_flip()
+```
+
+```{r, fig.width = 5, fig.asp = 0.6}
+d_responses_named %>%
+  filter(factor == "WLS4") %>%
+  filter(!is.na(response)) %>%
+  mutate(question_text = gsub('(.{1,40})(\\s|$)', '\\1\n', question_text)) %>%
+  ggplot(aes(x = reorder(question_text, desc(order)), 
+             fill = taves_ctry, alpha = response)) +
+  facet_grid(~ taves_ctry, scales = "free") +
+  geom_bar(position = "fill") +
+  geom_hline(yintercept = 0.5, lty = 2) +
+  scale_fill_brewer(palette = "Dark2", guide = "none") +
+  scale_alpha_discrete(guide = "none") +
+  labs(title = "Factor: WLS4",
+       x = "", y = "proportion saying YES") +
+  theme_bw() +
+  coord_flip()
+```
+
+```{r, fig.width = 5, fig.asp = 0.6}
+d_responses_named %>%
+  filter(factor == "WLS5") %>%
+  filter(!is.na(response)) %>%
+  mutate(question_text = gsub('(.{1,40})(\\s|$)', '\\1\n', question_text)) %>%
+  ggplot(aes(x = reorder(question_text, desc(order)), 
+             fill = taves_ctry, alpha = response)) +
+  facet_grid(~ taves_ctry, scales = "free") +
+  geom_bar(position = "fill") +
+  geom_hline(yintercept = 0.5, lty = 2) +
+  scale_fill_brewer(palette = "Dark2", guide = "none") +
+  scale_alpha_discrete(guide = "none") +
+  labs(title = "Factor: WLS5",
+       x = "", y = "proportion saying YES") +
+  theme_bw() +
+  coord_flip()
+```
+
+```{r, fig.width = 5, fig.asp = 0.6}
+d_responses_named %>%
+  filter(factor == "WLS1") %>%
+  filter(!is.na(response)) %>%
+  mutate(question_text = gsub('(.{1,40})(\\s|$)', '\\1\n', question_text)) %>%
+  ggplot(aes(x = reorder(question_text, desc(order)), 
+             fill = taves_ctry, alpha = response)) +
+  facet_grid(~ taves_ctry, scales = "free") +
+  geom_bar(position = "fill") +
+  geom_hline(yintercept = 0.5, lty = 2) +
+  scale_fill_brewer(palette = "Dark2", guide = "none") +
+  scale_alpha_discrete(guide = "none") +
+  labs(title = "Factor: WLS1",
+       x = "", y = "proportion saying YES") +
+  theme_bw() +
+  coord_flip()
+```
+
+```{r, fig.width = 5, fig.asp = 0.8}
+d_responses_named %>%
+  filter(factor == "WLS6") %>%
+  filter(!is.na(response)) %>%
+  mutate(question_text = gsub('(.{1,40})(\\s|$)', '\\1\n', question_text)) %>%
+  ggplot(aes(x = reorder(question_text, desc(order)), 
+             fill = taves_ctry, alpha = response)) +
+  facet_grid(~ taves_ctry, scales = "free") +
+  geom_bar(position = "fill") +
+  geom_hline(yintercept = 0.5, lty = 2) +
+  scale_fill_brewer(palette = "Dark2", guide = "none") +
+  scale_alpha_discrete(guide = "none") +
+  labs(title = "Factor: WLS6",
+       x = "", y = "proportion saying YES") +
+  theme_bw() +
+  coord_flip()
+```
+
+```{r, fig.width = 5, fig.asp = 0.6}
+d_responses_named %>%
+  filter(factor == "WLS3") %>%
+  filter(!is.na(response)) %>%
+  mutate(question_text = gsub('(.{1,40})(\\s|$)', '\\1\n', question_text)) %>%
+  ggplot(aes(x = reorder(question_text, desc(order)), 
+             fill = taves_ctry, alpha = response)) +
+  facet_grid(~ taves_ctry, scales = "free") +
+  geom_bar(position = "fill") +
+  geom_hline(yintercept = 0.5, lty = 2) +
+  scale_fill_brewer(palette = "Dark2", guide = "none") +
+  scale_alpha_discrete(guide = "none") +
+  labs(title = "Factor: WLS3",
+       x = "", y = "proportion saying YES") +
+  theme_bw() +
+  coord_flip()
+```
+
+```{r, fig.width = 5, fig.asp = 0.6}
+d_responses_named %>%
+  filter(factor == "WLS7") %>%
+  filter(!is.na(response)) %>%
+  mutate(question_text = gsub('(.{1,40})(\\s|$)', '\\1\n', question_text)) %>%
+  ggplot(aes(x = reorder(question_text, desc(order)), 
+             fill = taves_ctry, alpha = response)) +
+  facet_grid(~ taves_ctry, scales = "free") +
+  geom_bar(position = "fill") +
+  geom_hline(yintercept = 0.5, lty = 2) +
+  scale_fill_brewer(palette = "Dark2", guide = "none") +
+  scale_alpha_discrete(guide = "none") +
+  labs(title = "Factor: WLS7",
+       x = "", y = "proportion saying YES") +
+  theme_bw() +
+  coord_flip()
+```
+
+```{r, fig.width = 5, fig.asp = 0.6}
+d_responses_named %>%
+  filter(factor == "WLS8") %>%
+  filter(!is.na(response)) %>%
+  mutate(question_text = gsub('(.{1,40})(\\s|$)', '\\1\n', question_text)) %>%
+  ggplot(aes(x = reorder(question_text, desc(order)), 
+             fill = taves_ctry, alpha = response)) +
+  facet_grid(~ taves_ctry, scales = "free") +
+  geom_bar(position = "fill") +
+  geom_hline(yintercept = 0.5, lty = 2) +
+  scale_fill_brewer(palette = "Dark2", guide = "none") +
+  scale_alpha_discrete(guide = "none") +
+  labs(title = "Factor: WLS8",
+       x = "", y = "proportion saying YES") +
+  theme_bw() +
+  coord_flip()
+```
+
+
+
+
+```{r, fig.width = 12, fig.asp = 0.33, include = F}
+d_base_num %>%
+  remove_missing() %>%
+  dist() %>% 
+  hclust() %>%
+  plot()
+```
+
+```{r, include = F}
+hkmeans8 <- d_base_num %>%
+  rownames_to_column("subid") %>%
+  gather(question, response, -subid) %>%
+  mutate(question = gsub("_num", "", question)) %>%
+  left_join(loadings_named %>% distinct(question, question_text)) %>%
+  select(-question) %>%
+  spread(question_text, response) %>%
+  column_to_rownames("subid") %>%
+  remove_missing() %>%
+  t() %>%
+  hkmeans(8)
+```
+
+```{r, fig.width = 5, fig.asp = 2, include = F}
+hkmeans8 %>% 
+  fviz_dend(palette = "Dark2", horiz = F, color_labels_by_k = TRUE) + 
+  ylim(-60, 20)
+```
+
+
+```{r, fig.width = 6, fig.asp = 0.68, include = F}
+# hkmeans8 %>% fviz_cluster(palette = "Dark2")
+```
+
