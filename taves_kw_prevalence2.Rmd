@@ -1197,32 +1197,65 @@ Yes, this prediction is upheld, but rather weakly: Ghana and Vanuatu stand out i
 # Overall summaries of prevalence, appraisal, valence, & significance
 
 ```{r, include = F}
+df_prevalence <- d_base_num %>%
+  rownames_to_column("taves_subj") %>%
+  full_join(d0 %>% select(taves_subj, taves_ctry)) %>%
+  gather(question, endorsement, -c(taves_subj, taves_ctry)) %>%
+  mutate(question = gsub("_num", "", question)) %>%
+  filter(!is.na(endorsement)) %>%
+  group_by(taves_ctry, question) %>%
+  mutate(prev_n = n()) %>%
+  group_by(prev_n, add = T) %>%
+  multi_boot_standard("endorsement") %>%
+  ungroup() %>%
+  rename(prev_ci_lower = ci_lower,
+         prev_ci_upper = ci_upper,
+         prev_mean = mean)
+
 df_appraisal <- d_appraisal_num2 %>%
   mutate(question = gsub("._num", "", question)) %>%
   filter(!is.na(appraisal)) %>%
   group_by(taves_ctry, level1, level2uncommon, level2common, level3, 
            cluster, question) %>%
-  summarise(app = mean(appraisal), app_n = n()) %>%
-  ungroup()
+  mutate(app_n = n()) %>%
+  group_by(app_n, add = T) %>%
+  multi_boot_standard("appraisal") %>%
+  ungroup() %>%
+  rename(app_ci_lower = ci_lower,
+         app_ci_upper = ci_upper,
+         app_mean = mean)
 
 df_valence <- d_valence_num2 %>%
   mutate(question = gsub("._num", "", question)) %>%
   filter(!is.na(valence)) %>%
   group_by(taves_ctry, level1, level2uncommon, level2common, level3, 
            cluster, question) %>%
-  summarise(val = mean(valence), val_n = n()) %>%
-  ungroup()
+  mutate(val_n = n()) %>%
+  group_by(val_n, add = T) %>%
+  multi_boot_standard("valence") %>%
+  ungroup() %>%
+  rename(val_ci_lower = ci_lower,
+         val_ci_upper = ci_upper,
+         val_mean = mean)
 
 df_significance <- d_significance_num2 %>%
   mutate(question = gsub("._num", "", question)) %>%
   filter(!is.na(significance)) %>%
   group_by(taves_ctry, level1, level2uncommon, level2common, level3, 
            cluster, question) %>%
-  summarise(sig = mean(significance), sig_n = n()) %>%
-  ungroup()
+  mutate(sig_n = n()) %>%
+  group_by(sig_n, add = T) %>%
+  multi_boot_standard("significance") %>%
+  ungroup() %>%
+  rename(sig_ci_lower = ci_lower,
+         sig_ci_upper = ci_upper,
+         sig_mean = mean)
 
 df_all_resp <- hclust_df_grouped %>% 
-  rename(prev_US = US_prev, prev_n = n) %>%
+  distinct(question, question_text, US_prev,  
+           level1, level2uncommon, level2common, level3, cluster) %>%
+  rename(prev_US = US_prev) %>%
+  full_join(df_prevalence) %>%
   full_join(df_appraisal) %>%
   full_join(df_valence) %>%
   full_join(df_significance) %>%
@@ -1246,17 +1279,18 @@ df_all_resp <- hclust_df_grouped %>%
                                         "China", "Vanuatu"))) %>%
   select(taves_ctry, level1, level2, level2uncommon, level2common, level3, 
          cluster, question, question_text, prev_US, 
-         prev, prev_n, app, app_n, val, val_n, sig, sig_n)
+         starts_with("prev"), starts_with("app"), starts_with("sig"),
+         starts_with("val"))
 ```
 
 ```{r, fig.width = 6, fig.asp = 0.8}
 df_all_resp %>%
-  ggplot(aes(x = question, y = prev, color = taves_ctry, label = prev_n)) +
+  ggplot(aes(x = question, y = prev_mean, color = taves_ctry, label = prev_n)) +
   facet_grid(cols = vars(level1, level2, cluster), 
              rows = vars(taves_ctry), 
              scales = "free_x", space = "free_x") +
   geom_hline(yintercept = 0.5, lty = 2) +
-  geom_point(size = 3) +
+  geom_pointrange(aes(ymin = prev_ci_lower, ymax = prev_ci_upper)) +
   geom_text(size = 2, y = 0.05, color = "black") +
   scale_color_brewer(palette = "Set2") +
   ylim(0, 1) +
@@ -1264,7 +1298,7 @@ df_all_resp %>%
   theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
         legend.position = "none") +
   labs(title = "PREVALENCE: Proportion of participants who endorsed experience",
-       subtitle = "By site (rows), question (x-axis), and levels 1-2 grouping of clusters (columns)\nNumbers for each question indicate the total number of participants from that site who responded to that question",
+       subtitle = "By site (rows), question (x-axis), and levels 1-2 grouping of clusters (columns)\nNumbers for each question indicate the total number of participants from that site who responded to that question; error bars are 95% bootstrapped CIs",
        x = "Question",
        y = "Prevalence (0-1)", color = "Site")
 ```
@@ -1272,12 +1306,12 @@ df_all_resp %>%
 <P style="page-break-before: always">
 ```{r, fig.width = 6, fig.asp = 0.8}
 df_all_resp %>%
-  ggplot(aes(x = question, y = app, color = taves_ctry, label = app_n)) +
+  ggplot(aes(x = question, y = app_mean, color = taves_ctry, label = app_n)) +
   facet_grid(cols = vars(level1, level2, cluster), 
              rows = vars(taves_ctry), 
              scales = "free_x", space = "free_x") +
   geom_hline(yintercept = 0, lty = 2) +
-  geom_point(size = 3) +
+  geom_pointrange(aes(ymin = app_ci_lower, ymax = app_ci_upper)) +
   geom_text(size = 2, y = -0.95, color = "black") +
   scale_color_brewer(palette = "Set2") +
   ylim(-1, 1) +
@@ -1285,7 +1319,7 @@ df_all_resp %>%
   theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
         legend.position = "none") +
   labs(title = "APPRAISAL: Mean response to whether the participant appraised experience as religious/spiritual",
-       subtitle = "By site (rows), question (x-axis), and levels 1-2 grouping of clusters (columns)\nNumbers for each question indicate the total number of participants from that site who responded to that question",
+       subtitle = "By site (rows), question (x-axis), and levels 1-2 grouping of clusters (columns)\nNumbers for each question indicate the total number of participants from that site who responded to that question; error bars are 95% bootstrapped CIs",
        x = "Question",
        y = "Appraisal (-1: no, 0: unsure, +1: yes)", color = "Site")
 ```
@@ -1293,12 +1327,12 @@ df_all_resp %>%
 <P style="page-break-before: always">
 ```{r, fig.width = 6, fig.asp = 0.8}
 df_all_resp %>%
-  ggplot(aes(x = question, y = val, color = taves_ctry, label = val_n)) +
+  ggplot(aes(x = question, y = val_mean, color = taves_ctry, label = val_n)) +
   facet_grid(cols = vars(level1, level2, cluster), 
              rows = vars(taves_ctry), 
              scales = "free_x", space = "free_x") +
   geom_hline(yintercept = 0, lty = 2) +
-  geom_point(size = 3) +
+  geom_pointrange(aes(ymin = val_ci_lower, ymax = val_ci_upper)) +
   geom_text(size = 2, y = -0.95, color = "black") +
   scale_color_brewer(palette = "Set2") +
   ylim(-1, 1) +
@@ -1306,7 +1340,7 @@ df_all_resp %>%
   theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
         legend.position = "none") +
   labs(title = "VALENCE: Mean response to whether experience was considered positive/negative",
-       subtitle = "By site (rows), question (x-axis), and levels 1-2 grouping of clusters (columns)\nNumbers for each question indicate the total number of participants from that site who responded to that question",
+       subtitle = "By site (rows), question (x-axis), and levels 1-2 grouping of clusters (columns)\nNumbers for each question indicate the total number of participants from that site who responded to that question; error bars are 95% bootstrapped CIs",
        x = "Question",
        y = "Valence (-1: negative, 0: neutral, +1: positive)", color = "Site")
 ```
@@ -1314,12 +1348,12 @@ df_all_resp %>%
 <P style="page-break-before: always">
 ```{r, fig.width = 6, fig.asp = 0.8}
 df_all_resp %>%
-  ggplot(aes(x = question, y = sig, color = taves_ctry, label = sig_n)) +
+  ggplot(aes(x = question, y = sig_mean, color = taves_ctry, label = sig_n)) +
   facet_grid(cols = vars(level1, level2, cluster), 
              rows = vars(taves_ctry), 
              scales = "free_x", space = "free_x") +
   geom_hline(yintercept = 0.5, lty = 2) +
-  geom_point(size = 3) +
+  geom_pointrange(aes(ymin = sig_ci_lower, ymax = sig_ci_upper)) +
   geom_text(size = 2, y = 0.05, color = "black") +
   scale_color_brewer(palette = "Set2") +
   ylim(0, 1) +
@@ -1327,7 +1361,7 @@ df_all_resp %>%
   theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
         legend.position = "none") +
   labs(title = "SIGNIFICANCE: Mean response to how significant experience was considered",
-       subtitle = "By site (rows), question (x-axis), and levels 1-2 grouping of clusters (columns)\nNumbers for each question indicate the total number of participants from that site who responded to that question",
+       subtitle = "By site (rows), question (x-axis), and levels 1-2 grouping of clusters (columns)\nNumbers for each question indicate the total number of participants from that site who responded to that question; error bars are 95% bootstrapped CIs",
        x = "Question",
        y = "Significance (0: not, 0.5: somewhat, 1: very)", color = "Site")
 ```
