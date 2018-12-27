@@ -175,8 +175,8 @@ My first instinct was to try hierarchical clustering on this new dataset. Each q
 ```{r}
 hclust_prev <- d_prev_wide %>% 
   t() %>% 
-  dist() %>% 
-  hclust()
+  dist(method = "euclidean") %>% # default 
+  hclust(method = "complete") # default
 ```
 
 ```{r, fig.width = 8, fig.asp = 1}
