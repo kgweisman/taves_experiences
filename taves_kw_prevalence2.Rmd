@@ -1,6 +1,6 @@
 ---
 title: "KW looking at patterns of prevalence"
-date: 2018-10-08
+date: 2019-01-14
 output: 
   html_notebook:
     toc: true
@@ -12,6 +12,8 @@ This is Kara's attempt to think about patterns of prevalence across sites: What 
 This is inspired by Ann's ideas on 2018-10-08, but uses a somewhat different strategy.
 
 **Update 2018-12-17**: Now including tests of hypotheses from our meeting on 2018-12-10.
+
+**Update 2019-01-14**: Now including distributions (histograms) of mean responses by question.
 
 ```{r global_options, include = F}
 knitr::opts_chunk$set(echo=F, warning=F, cache=F, message=F)
@@ -1367,3 +1369,69 @@ df_all_resp %>%
 ```
 
 
+<P style="page-break-before: always">
+# Distributions (histograms) of mean responses by question
+
+```{r}
+histo_fun <- function(df, col){
+  
+  df <- df %>%
+    mutate(taves_ctry = factor(taves_ctry,
+                               levels = c("US", "Ghana", "Thailand",
+                                          "China", "Vanuatu")))
+
+  xmin <- case_when(col %in% c("prev_mean", "sig_mean") ~ 0,
+                    col %in% c("app_mean", "val_mean") ~ -1)
+  xmax <- 1
+  binw <- (xmax - xmin)/10
+  
+  stats <- df %>%
+    group_by(taves_ctry) %>%
+    summarise(mean = mean(!!sym(col)),
+              median = median(!!sym(col)),
+              var = var(!!sym(col))) %>%
+    ungroup()
+  
+  df %>%
+    ggplot(aes_string(x = col, fill = "taves_ctry")) +
+    facet_grid(~ taves_ctry) +
+    geom_histogram(binwidth = binw, show.legend = F, color = "black") +
+    geom_text(data = stats,
+              aes(x = xmax + 2.1 * binw, y = 25,
+                  label = paste0("mean: ", 
+                                 format(round(mean, 3), nsmall = 3), 
+                                 "\nmedian: ", 
+                                 format(round(median, 3), nsmall = 3),
+                                 "\nvariance: ", 
+                                 format(round(var, 3), nsmall = 3))),
+              vjust = 1, hjust = 1, size = 3) +
+    scale_fill_brewer(palette = "Dark2") +
+    scale_x_continuous(limits = c(xmin - 2.1 * binw, xmax + 2.1 * binw),
+                       breaks = seq(xmin, xmax, binw * 2)) +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1)) +
+    labs(x = "Mean response for a given question (by site)",
+         y = "Number of questions")
+}
+```
+
+```{r, fig.width = 5, fig.asp = 0.3}
+histo_fun(df_prevalence, "prev_mean") +
+  labs(title = "PREVALENCE: Distributions of mean responses",
+       x = "Mean proportion of 'yes' responses (by site)")
+```
+
+```{r, fig.width = 5, fig.asp = 0.3}
+histo_fun(df_appraisal, "app_mean") +
+  labs(title = "APPRAISAL: Distributions of mean responses")
+```
+
+```{r, fig.width = 5, fig.asp = 0.3}
+histo_fun(df_valence, "val_mean") +
+  labs(title = "VALENCE: Distributions of mean responses")
+```
+
+```{r, fig.width = 5, fig.asp = 0.3}
+histo_fun(df_significance, "sig_mean") +
+  labs(title = "SIGNIFICANCE: Distributions of mean responses")
+```
