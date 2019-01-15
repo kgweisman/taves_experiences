@@ -13,7 +13,7 @@ This is inspired by Ann's ideas on 2018-10-08, but uses a somewhat different str
 
 **Update 2018-12-17**: Now including tests of hypotheses from our meeting on 2018-12-10.
 
-**Update 2019-01-14**: Now including distributions (histograms) of mean responses by question.
+**Update 2019-01-14**: Now including distributions (histograms) of mean responses by question, and a quick analysis of participants' self-reported religiosity/spirtuality.
 
 ```{r global_options, include = F}
 knitr::opts_chunk$set(echo=F, warning=F, cache=F, message=F)
@@ -1415,8 +1415,49 @@ histo_fun <- function(df, col){
 }
 ```
 
+```{r}
+density_fun <- function(df, col){
+  
+  df <- df %>%
+    mutate(taves_ctry = factor(taves_ctry,
+                               levels = c("US", "Ghana", "Thailand",
+                                          "China", "Vanuatu")))
+
+  xmin <- case_when(col %in% c("prev_mean", "sig_mean") ~ 0,
+                    col %in% c("app_mean", "val_mean") ~ -1)
+  xmax <- 1
+  binw <- (xmax - xmin)/10
+  
+  stats <- df %>%
+    group_by(taves_ctry) %>%
+    summarise(mean = mean(!!sym(col)),
+              median = median(!!sym(col)),
+              var = var(!!sym(col))) %>%
+    ungroup()
+  
+  df %>%
+    ggplot(aes_string(x = col, fill = "taves_ctry", color = "taves_ctry")) +
+    geom_density(alpha = 0.1, size = 1) +
+    scale_fill_brewer(palette = "Dark2") +
+    scale_color_brewer(palette = "Dark2") +
+    scale_x_continuous(limits = c(xmin - 2.1 * binw, xmax + 2.1 * binw),
+                       breaks = seq(xmin, xmax, binw * 2)) +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1)) +
+    labs(x = "Mean response for a given question (by site)",
+         y = "Density (scales with # of questions)",
+         color = "Site", fill = "Site")
+}
+```
+
 ```{r, fig.width = 5, fig.asp = 0.3}
 histo_fun(df_prevalence, "prev_mean") +
+  labs(title = "PREVALENCE: Distributions of mean responses",
+       x = "Mean proportion of 'yes' responses (by site)")
+```
+
+```{r, fig.width = 5, fig.asp = 0.3}
+density_fun(df_prevalence, "prev_mean") +
   labs(title = "PREVALENCE: Distributions of mean responses",
        x = "Mean proportion of 'yes' responses (by site)")
 ```
@@ -1427,11 +1468,300 @@ histo_fun(df_appraisal, "app_mean") +
 ```
 
 ```{r, fig.width = 5, fig.asp = 0.3}
+density_fun(df_appraisal, "app_mean") +
+  labs(title = "APPRAISAL: Distributions of mean responses")
+```
+
+```{r, fig.width = 5, fig.asp = 0.3}
 histo_fun(df_valence, "val_mean") +
+  labs(title = "VALENCE: Distributions of mean responses")
+```
+
+```{r, fig.width = 5, fig.asp = 0.3}
+density_fun(df_valence, "val_mean") +
   labs(title = "VALENCE: Distributions of mean responses")
 ```
 
 ```{r, fig.width = 5, fig.asp = 0.3}
 histo_fun(df_significance, "sig_mean") +
   labs(title = "SIGNIFICANCE: Distributions of mean responses")
+```
+
+```{r, fig.width = 5, fig.asp = 0.3}
+density_fun(df_significance, "sig_mean") +
+  labs(title = "SIGNIFICANCE: Distributions of mean responses")
+```
+
+
+<P style="page-break-before: always">
+# Religiosity of particpants
+
+## General demographics, by site
+
+### "Do you consider yourself a religious or spiritual person?"
+
+```{r, results = "asis"}
+d0 %>% 
+  mutate_all(funs(tolower)) %>%
+  mutate(taves_demo_howr1 = factor(taves_demo_howr1,
+                                   levels = c("not at all", "slightly",
+                                              "somewhat", "very")),
+         taves_ctry = factor(taves_ctry,
+                             levels = c("us", "ghana", "thailand", 
+                                        "china", "vanuatu"))) %>%
+  count(taves_ctry, taves_demo_howr1) %>%
+  group_by(taves_ctry) %>%
+  mutate(prop = n/sum(n)) %>%
+  select(-n) %>%
+  spread(taves_demo_howr1, prop) %>%
+  ungroup() %>%
+  mutate_at(vars(-taves_ctry), funs(round(., 2))) %>%
+  knitr::kable() %>% 
+  kableExtra::kable_styling()
+```
+
+This seems like the most basic question we have about participant religiosity, and one that splits the US sample roughly equally into a less religious group ("not at all" or "slightly") vs. a more religious group ("somewaht" or "very"). **I will use this question to split the US sample, below.**
+
+```{r}
+df_relig <- d0 %>%
+  mutate(taves_demo_howr1 = factor(tolower(taves_demo_howr1),
+                                   levels = c("not at all", "slightly",
+                                              "somewhat", "very"))) %>%
+  mutate(taves_ctry_relig = 
+           case_when(taves_ctry != "US" ~ taves_ctry,
+                     taves_ctry == "US" & taves_demo_howr1 %in%
+                       c("not at all", "slightly") ~ "US, less relig",
+                     taves_ctry == "US" & taves_demo_howr1 %in%
+                       c("somewhat", "very") ~ "US, more relig")) %>%
+  distinct(taves_subj, taves_ctry_relig)
+```
+
+
+### "I consider myself a person of faith"
+
+```{r, results = "asis"}
+d0 %>% 
+  mutate_all(funs(tolower)) %>%
+  mutate(taves_fait = factor(taves_fait,
+                             levels = c("strongly disagree", "disagree",
+                                        "neither agree nor disagree", "agree",
+                                        "strongly agree")),
+         taves_ctry = factor(taves_ctry,
+                             levels = c("us", "ghana", "thailand", 
+                                        "china", "vanuatu"))) %>%
+  count(taves_ctry, taves_fait) %>%
+  group_by(taves_ctry) %>%
+  mutate(prop = n/sum(n)) %>%
+  select(-n) %>%
+  spread(taves_fait, prop) %>%
+  ungroup() %>%
+  mutate_at(vars(-taves_ctry), funs(round(., 2))) %>%
+  knitr::kable() %>% 
+  kableExtra::kable_styling()
+```
+
+I guess we didn't ask this question in the US?
+
+<P style="page-break-before: always">
+### "Do you participate in a religious or spiritual group?"
+
+```{r, results = "asis"}
+d0 %>% 
+  mutate_all(funs(tolower)) %>%
+  mutate(taves_demo_regp = factor(taves_demo_regp,
+                                  levels = c("no", "yes")),
+         taves_ctry = factor(taves_ctry,
+                             levels = c("us", "ghana", "thailand", 
+                                        "china", "vanuatu"))) %>%
+  count(taves_ctry, taves_demo_regp) %>%
+  group_by(taves_ctry) %>%
+  mutate(prop = n/sum(n)) %>%
+  select(-n) %>%
+  spread(taves_demo_regp, prop) %>%
+  ungroup() %>%
+  mutate_at(vars(-taves_ctry), funs(round(., 2))) %>%
+  knitr::kable() %>% 
+  kableExtra::kable_styling()
+```
+
+<P style="page-break-before: always">
+## Overall summaries of prevalence, appraisal, valence, and signifiance, breaking down by religiosity for US participants only
+
+```{r, include = F}
+df_prevalence_relig <- d_base_num %>%
+  rownames_to_column("taves_subj") %>%
+  full_join(df_relig) %>%
+  gather(question, endorsement, -c(taves_subj, taves_ctry_relig)) %>%
+  mutate(question = gsub("_num", "", question)) %>%
+  filter(!is.na(endorsement)) %>%
+  group_by(taves_ctry_relig, question) %>%
+  mutate(prev_n = n()) %>%
+  group_by(prev_n, add = T) %>%
+  multi_boot_standard("endorsement") %>%
+  ungroup() %>%
+  rename(prev_ci_lower = ci_lower,
+         prev_ci_upper = ci_upper,
+         prev_mean = mean)
+
+df_appraisal_relig <- d_appraisal_num2 %>%
+  full_join(df_relig) %>%
+  mutate(question = gsub("._num", "", question)) %>%
+  filter(!is.na(appraisal)) %>%
+  group_by(taves_ctry_relig, level1, level2uncommon, level2common, level3, 
+           cluster, question) %>%
+  mutate(app_n = n()) %>%
+  group_by(app_n, add = T) %>%
+  multi_boot_standard("appraisal") %>%
+  ungroup() %>%
+  rename(app_ci_lower = ci_lower,
+         app_ci_upper = ci_upper,
+         app_mean = mean)
+
+df_valence_relig <- d_valence_num2 %>%
+  full_join(df_relig) %>%
+  mutate(question = gsub("._num", "", question)) %>%
+  filter(!is.na(valence)) %>%
+  group_by(taves_ctry_relig, level1, level2uncommon, level2common, level3, 
+           cluster, question) %>%
+  mutate(val_n = n()) %>%
+  group_by(val_n, add = T) %>%
+  multi_boot_standard("valence") %>%
+  ungroup() %>%
+  rename(val_ci_lower = ci_lower,
+         val_ci_upper = ci_upper,
+         val_mean = mean)
+
+df_significance_relig <- d_significance_num2 %>%
+  full_join(df_relig) %>%
+  mutate(question = gsub("._num", "", question)) %>%
+  filter(!is.na(significance)) %>%
+  group_by(taves_ctry_relig, level1, level2uncommon, level2common, level3, 
+           cluster, question) %>%
+  mutate(sig_n = n()) %>%
+  group_by(sig_n, add = T) %>%
+  multi_boot_standard("significance") %>%
+  ungroup() %>%
+  rename(sig_ci_lower = ci_lower,
+         sig_ci_upper = ci_upper,
+         sig_mean = mean)
+
+df_all_resp_relig <- hclust_df_grouped %>% 
+  distinct(question, question_text, US_prev,  
+           level1, level2uncommon, level2common, level3, cluster) %>%
+  rename(prev_US = US_prev) %>%
+  full_join(df_prevalence_relig) %>%
+  full_join(df_appraisal_relig) %>%
+  full_join(df_valence_relig) %>%
+  full_join(df_significance_relig) %>%
+  mutate(level2 = ifelse(is.na(level2uncommon), 
+                         as.character(level2common), 
+                         as.character(level2uncommon)),
+         cluster = factor(cluster,
+                          levels = c("8", "5", "1", "3", "2",
+                                     "6", "9", "7", "4"),
+                          labels = c("cluster 8", "cluster 5", "cluster 1",
+                                     "cluster 3", "cluster 2", "cluster 6",
+                                     "cluster 9", "cluster 7 ", "cluster 4")),
+         level1 = factor(level1,
+                         levels = c("85132", "6794"),
+                         labels = c("L1: 85132", "L1: 6794")),
+         level2 = factor(level2,
+                         levels = c("851", "32", "679", "4"),
+                         labels = c("L2: 851", "L2: 32", "L2: 679", "L2: 4")),
+         taves_ctry_relig = factor(taves_ctry_relig,
+                             levels = c("US, less relig", "US, more relig", 
+                                        "Ghana", "Thailand",
+                                        "China", "Vanuatu"))) %>%
+  select(taves_ctry_relig, level1, level2, level2uncommon, level2common, level3, 
+         cluster, question, question_text, prev_US, 
+         starts_with("prev"), starts_with("app"), starts_with("sig"),
+         starts_with("val"))
+```
+
+
+```{r, fig.width = 6, fig.asp = 0.8}
+df_all_resp_relig %>%
+  ggplot(aes(x = question, y = prev_mean, color = taves_ctry_relig, label = prev_n)) +
+  facet_grid(cols = vars(level1, level2, cluster), 
+             rows = vars(taves_ctry_relig), 
+             scales = "free_x", space = "free_x") +
+  geom_hline(yintercept = 0.5, lty = 2) +
+  geom_pointrange(aes(ymin = prev_ci_lower, ymax = prev_ci_upper)) +
+  geom_text(size = 2, y = 0.05, color = "black") +
+  scale_color_manual(values = c("#66c2a5", "#66c2a5", "#fc8d62", 
+                                "#8da0cb", "#e78ac3", "#a6d854")) +
+  ylim(0, 1) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+        legend.position = "none") +
+  labs(title = "PREVALENCE: Proportion of participants who endorsed experience",
+       subtitle = "By site (rows), question (x-axis), and levels 1-2 grouping of clusters (columns)\nNumbers for each question indicate the total number of participants from that site who responded to that question; error bars are 95% bootstrapped CIs",
+       x = "Question",
+       y = "Prevalence (0-1)", color = "Site")
+```
+
+<P style="page-break-before: always">
+```{r, fig.width = 6, fig.asp = 0.8}
+df_all_resp_relig %>%
+  ggplot(aes(x = question, y = app_mean, color = taves_ctry_relig, label = app_n)) +
+  facet_grid(cols = vars(level1, level2, cluster), 
+             rows = vars(taves_ctry_relig), 
+             scales = "free_x", space = "free_x") +
+  geom_hline(yintercept = 0, lty = 2) +
+  geom_pointrange(aes(ymin = app_ci_lower, ymax = app_ci_upper)) +
+  geom_text(size = 2, y = -0.95, color = "black") +
+  scale_color_manual(values = c("#66c2a5", "#66c2a5", "#fc8d62", 
+                                "#8da0cb", "#e78ac3", "#a6d854")) +
+  ylim(-1, 1) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+        legend.position = "none") +
+  labs(title = "APPRAISAL: Mean response to whether the participant appraised experience as religious/spiritual",
+       subtitle = "By site (rows), question (x-axis), and levels 1-2 grouping of clusters (columns)\nNumbers for each question indicate the total number of participants from that site who responded to that question; error bars are 95% bootstrapped CIs",
+       x = "Question",
+       y = "Appraisal (-1: no, 0: unsure, +1: yes)", color = "Site")
+```
+
+<P style="page-break-before: always">
+```{r, fig.width = 6, fig.asp = 0.8}
+df_all_resp_relig %>%
+  ggplot(aes(x = question, y = val_mean, color = taves_ctry_relig, label = val_n)) +
+  facet_grid(cols = vars(level1, level2, cluster), 
+             rows = vars(taves_ctry_relig), 
+             scales = "free_x", space = "free_x") +
+  geom_hline(yintercept = 0, lty = 2) +
+  geom_pointrange(aes(ymin = val_ci_lower, ymax = val_ci_upper)) +
+  geom_text(size = 2, y = -0.95, color = "black") +
+  scale_color_manual(values = c("#66c2a5", "#66c2a5", "#fc8d62", 
+                                "#8da0cb", "#e78ac3", "#a6d854")) +
+  ylim(-1, 1) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+        legend.position = "none") +
+  labs(title = "VALENCE: Mean response to whether experience was considered positive/negative",
+       subtitle = "By site (rows), question (x-axis), and levels 1-2 grouping of clusters (columns)\nNumbers for each question indicate the total number of participants from that site who responded to that question; error bars are 95% bootstrapped CIs",
+       x = "Question",
+       y = "Valence (-1: negative, 0: neutral, +1: positive)", color = "Site")
+```
+
+<P style="page-break-before: always">
+```{r, fig.width = 6, fig.asp = 0.8}
+df_all_resp_relig %>%
+  ggplot(aes(x = question, y = sig_mean, color = taves_ctry_relig, label = sig_n)) +
+  facet_grid(cols = vars(level1, level2, cluster), 
+             rows = vars(taves_ctry_relig), 
+             scales = "free_x", space = "free_x") +
+  geom_hline(yintercept = 0.5, lty = 2) +
+  geom_pointrange(aes(ymin = sig_ci_lower, ymax = sig_ci_upper)) +
+  geom_text(size = 2, y = 0.05, color = "black") +
+  scale_color_manual(values = c("#66c2a5", "#66c2a5", "#fc8d62", 
+                                "#8da0cb", "#e78ac3", "#a6d854")) +
+  ylim(0, 1) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+        legend.position = "none") +
+  labs(title = "SIGNIFICANCE: Mean response to how significant experience was considered",
+       subtitle = "By site (rows), question (x-axis), and levels 1-2 grouping of clusters (columns)\nNumbers for each question indicate the total number of participants from that site who responded to that question; error bars are 95% bootstrapped CIs",
+       x = "Question",
+       y = "Significance (0: not, 0.5: somewhat, 1: very)", color = "Site")
 ```
