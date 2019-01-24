@@ -1494,9 +1494,41 @@ density_fun(df_significance, "sig_mean") +
 
 
 <P style="page-break-before: always">
-# Religiosity of particpants
+# Religiosity of participants
 
 ## General demographics, by site
+
+### Sample size
+
+```{r, results = "asis"}
+d0 %>% 
+  mutate_all(funs(tolower)) %>%
+  mutate(taves_ctry = factor(taves_ctry,
+                             levels = c("us", "ghana", "thailand", 
+                                        "china", "vanuatu"))) %>%
+  count(taves_ctry) %>%
+  knitr::kable() %>% 
+  kableExtra::kable_styling()
+```
+
+### Gender
+
+```{r, results = "asis"}
+d0 %>% 
+  mutate_all(funs(tolower)) %>%
+  mutate(taves_ctry = factor(taves_ctry,
+                             levels = c("us", "ghana", "thailand", 
+                                        "china", "vanuatu"))) %>%
+  count(taves_ctry, taves_demo_sex) %>%
+  group_by(taves_ctry) %>%
+  mutate(prop = n/sum(n)) %>%
+  select(-n) %>%
+  spread(taves_demo_sex, prop) %>%
+  ungroup() %>%
+  mutate_at(vars(-taves_ctry), funs(round(., 2))) %>%
+  knitr::kable() %>% 
+  kableExtra::kable_styling()
+```
 
 ### "Do you consider yourself a religious or spiritual person?"
 
