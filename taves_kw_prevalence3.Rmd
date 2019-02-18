@@ -1,74 +1,1329 @@
 ---
-title: "KW looking at patterns of prevalence using all variables"
-date: 2018-12-20
+title: "KW looking at patterns of prevalence"
+date: 2019-02-18
 output: 
   html_notebook:
     toc: true
     toc_float: true
 ---
 
-```{r}
-temp <- df_all_resp %>%
-  select(taves_ctry, question_text, ends_with("mean")) %>%
-  mutate(abs_val_mean = abs(val_mean)) %>%
-  gather(index, score, ends_with("mean")) %>%
-  arrange(taves_ctry, question_text, index) %>%
-  mutate(site_index = paste(taves_ctry, index, sep = "_")) %>%
-  select(question_text, site_index, score) %>%
-  spread(question_text, score) %>%
-  column_to_rownames("site_index")
+This is Kara's attempt to think about patterns of prevalence across sites: What proportion of participants in each site endorsed each question, and can we find "clusters" of questions that were either similar in prevalence across sites or difference across sites in various ways?
+
+This is inspired by Ann's ideas on 2018-10-08, but uses a somewhat different strategy.
+
+**Update 2018-12-17**: Now including tests of hypotheses from our meeting on 2018-12-10.
+
+**Update 2019-01-14**: Now including distributions (histograms) of mean responses by question, and a quick analysis of participants' self-reported religiosity/spirtuality.
+
+**Update 2019-02-19**: Now including distributions (histograms) of mean responses by question, broken down by US participants' self-reported religiosity/spirtuality.
+
+```{r global_options, include = F}
+knitr::opts_chunk$set(echo=F, warning=F, cache=F, message=F)
 ```
 
+```{r, include = F}
+library(tidyverse)
+library(readxl)
+library(psych)
+library(factoextra)
+library(ggdendro)
+library(dendextend)
+library(lme4)
+library(langcog)
+```
+
+```{r, include = F}
+d0 <- read_excel("/Users/kweisman/Documents/Research (Stanford)/Projects/Templeton Grant/DATA WRANGLING/Taves/data/Taves_full_dataset.xlsx", sheet = 5)[-1,] # remove question text
+
+question_key <- read_excel("/Users/kweisman/Documents/Research (Stanford)/Projects/Templeton Grant/DATA WRANGLING/Taves/data/Taves_full_dataset.xlsx", sheet = 3)[,1:5] # only relevant columns
+
+n_iter <- 5000
+```
+
+```{r, include = F}
+d_base <- d0 %>%
+  data.frame() %>%
+  select(taves_subj, taves_01:taves_60e) %>%
+  select(-ends_with("a"), -ends_with("b"), -ends_with("c"), 
+         -ends_with("d"), -ends_with("e")) %>%
+  distinct() %>%
+  filter(taves_subj != "40548") %>% # remove one duplicate
+  # column_to_rownames("taves_subj") %>%
+  mutate_at(vars(-taves_subj),
+            funs(factor(tolower(.), levels = c("no", "yes")))) %>%
+  mutate_at(vars(-taves_subj),
+            funs(num = as.numeric(.) - 1)) %>%
+  column_to_rownames("taves_subj") %>%
+  select(-starts_with("taves_53"))
+
+d_base_num <- d_base %>%
+  select(ends_with("_num"))
+```
+
+Notes: per our conversation with Nikki, we are dropping one question (#53), which was a repeated question in all sites except for China.
+
+```{r, include = F}
+d_appraisal <- d0 %>%
+  data.frame() %>%
+  select(taves_subj, taves_01:taves_60e) %>%
+  select(taves_subj, ends_with("b")) %>%
+  distinct() %>%
+  filter(taves_subj != "40548") %>% # remove one duplicate
+  # column_to_rownames("taves_subj") %>%
+  mutate_at(vars(-taves_subj),
+            funs(factor(tolower(.), levels = c("no", "unsure", "yes")))) %>%
+  mutate_at(vars(-taves_subj),
+            funs(num = as.numeric(.) - 2)) %>%
+  column_to_rownames("taves_subj") %>%
+  select(-starts_with("taves_53"))
+
+d_appraisal_num <- d_appraisal %>%
+  select(ends_with("_num"))
+```
+
+```{r, include = F}
+d_valence <- d0 %>%
+  data.frame() %>%
+  select(taves_subj, taves_01:taves_60e) %>%
+  select(taves_subj, ends_with("d")) %>%
+  distinct() %>%
+  filter(taves_subj != "40548") %>% # remove one duplicate
+  # column_to_rownames("taves_subj") %>%
+  mutate_at(vars(-taves_subj),
+            funs(factor(tolower(.), levels = c("somewhat negative", 
+                                               "about neutral", 
+                                               "somewhat positive")))) %>%
+  mutate_at(vars(-taves_subj),
+            funs(num = as.numeric(.) - 2)) %>%
+  column_to_rownames("taves_subj") %>%
+  select(-starts_with("taves_53"))
+
+d_valence_num <- d_valence %>%
+  select(ends_with("_num"))
+```
+
+```{r, include = F}
+d_significance <- d0 %>%
+  data.frame() %>%
+  select(taves_subj, taves_01:taves_60e) %>%
+  select(taves_subj, ends_with("e")) %>%
+  distinct() %>%
+  filter(taves_subj != "40548") %>% # remove one duplicate
+  # column_to_rownames("taves_subj") %>%
+  mutate_at(vars(-taves_subj),
+            funs(factor(tolower(.), levels = c("not significant", 
+                                               "somewhat significant", 
+                                               "very significant")))) %>%
+  mutate_at(vars(-taves_subj),
+            funs(num = (as.numeric(.) - 1)/2)) %>%
+  column_to_rownames("taves_subj") %>%
+  select(-starts_with("taves_53"))
+
+d_significance_num <- d_significance %>%
+  select(ends_with("_num"))
+```
+
+# Demographics
+
+### Sample size
+
+```{r, results = "asis"}
+d0 %>% 
+  mutate_all(funs(tolower)) %>%
+  mutate(taves_ctry = factor(taves_ctry,
+                             levels = c("us", "ghana", "thailand", 
+                                        "china", "vanuatu"))) %>%
+  count(taves_ctry) %>%
+  knitr::kable() %>% 
+  kableExtra::kable_styling()
+```
+
+### Gender
+
+```{r, results = "asis"}
+d0 %>% 
+  mutate_all(funs(tolower)) %>%
+  mutate(taves_ctry = factor(taves_ctry,
+                             levels = c("us", "ghana", "thailand", 
+                                        "china", "vanuatu"))) %>%
+  count(taves_ctry, taves_demo_sex) %>%
+  group_by(taves_ctry) %>%
+  mutate(prop = n/sum(n)) %>%
+  select(-n) %>%
+  spread(taves_demo_sex, prop) %>%
+  ungroup() %>%
+  mutate_at(vars(-taves_ctry), funs(round(., 2))) %>%
+  knitr::kable() %>% 
+  kableExtra::kable_styling()
+```
+
+
+# Make new dataset
+
+First, I'm going to make a new dataset where, for each question, we have the proportion of yes reponses from each of the five field sites.
+
 ```{r}
-hclust_all <- temp %>%
-  t() %>%
-  dist() %>%
-  hclust()
+d_prev <- d_base_num %>%
+  rownames_to_column("taves_subj") %>%
+  gather(question, response, -taves_subj) %>%
+  left_join(d0 %>% distinct(taves_subj, taves_ctry)) %>%
+  group_by(taves_ctry, question) %>%
+  summarise(prev = mean(response, na.rm = T)) %>%
+  ungroup() %>%
+  mutate(question = gsub("_num", "", question)) %>%
+  left_join(question_key %>%
+              rename(question = `Variable Name - VERSION 1 -- all variables in version2 have been renamed to reflect these varaible names`,
+                     question_text = `Question - VERSION 1`)) %>%
+  select(taves_ctry, question, question_text, prev) %>%
+  mutate(question_text = gsub("\r", " ", question_text),
+         question_text = gsub("\n", " ", question_text),
+         question_text = gsub("  ", " ", question_text),
+         question_text = gsub("‚Äô", "'", question_text),
+         question_text = gsub("‚Äú", "'", question_text),
+         question_text = gsub("‚Äù", "'", question_text),
+         taves_ctry = factor(taves_ctry,
+                             levels = c("US", "Ghana", "Thailand", 
+                                        "China", "Vanuatu")))
+
+
+d_prev_wide <- d_prev %>%
+  mutate(question = factor(question)) %>%
+  arrange(question) %>%
+  select(-question) %>%
+  spread(question_text, prev) %>%
+  mutate(taves_ctry = as.character(taves_ctry)) %>%
+  column_to_rownames("taves_ctry")
+```
+
+Here's a sample of what this new dataset looks like (5 of the 59 columns):
+
+```{r, results = "asis"}
+d_prev_wide %>% 
+  select(2:6) %>% 
+  rownames_to_column("Site") %>% 
+  knitr::kable() %>% 
+  kableExtra::kable_styling()
+```
+
+
+<P style="page-break-before: always">
+# Hierarchical clustering
+
+My first instinct was to try hierarchical clustering on this new dataset. Each question is associated with 5 prevalences (one for each of our 5 fieldsites). In this cluster analysis, we're looking for questions that share similar patterns of prevalence across the fieldsites - e.g., one cluster might identify a set questions where the prevalence is roughly the same across the 5 sites; another cluster might identify a set of questions where the prevalence is high in Ghana and Vanuatu but low everywhere else; etc. I think this captures some of the spirit of what Ann was after today (10/8)... though maybe not everything (e.g., it might not differentiate between questions where prevalence is high across the 5 sites vs. questions where prevalence is low across the 5 sites).
+
+```{r}
+hclust_prev <- d_prev_wide %>% 
+  t() %>% 
+  dist(method = "euclidean") %>% # default 
+  hclust(method = "complete") # default
 ```
 
 ```{r, fig.width = 8, fig.asp = 1}
-hclust_all %>% 
+hclust_prev %>% 
   as.dendrogram() %>% 
   set("labels_col", k = 9, value = c("#a6cee3", "#1f78b4", "#b2df8a",
                                      "#33a02c", "#fb9a99", "#e31a1c", 
                                      "#fdbf6f", "#ff7f00", "#cab2d6")) %>% 
-  plot(horiz = T, xlim = c(3, -10), axes = F)
+  plot(horiz = T, xlim = c(1.5, -12), axes = F)
 ```
 
+After some playing around with this, I'm going to extract 9 clusters here - I've colored them according such above. This is a subjective call - you could extract more or fewer. I think this seems kind of reasonable eyeballing the plot above.
+
 ```{r}
-temp_df <- data.frame(cluster = cutree(hclust_all, 9)) %>%
+hclust_df <- data.frame(cluster = cutree(hclust_prev, 9)) %>%
   rownames_to_column("question_text") %>%
-  mutate(level1 = case_when(cluster %in% c(1, 3, 8, 9, 5) ~ "13895",
-                            cluster %in% c(4, 6, 2, 7) ~ "4627"),
-         level2a = case_when(cluster %in% c(1, 3) ~ "13",
-                             cluster %in% c(8, 9, 5) ~ "895"),
-         level2b = case_when(cluster %in% c(4, 6, 2) ~ "462",
-                             cluster %in% c(7) ~ "7"),
-         level2 = case_when(cluster %in% c(1, 3) ~ "13",
-                            cluster %in% c(8, 9, 5) ~ "895",
-                            cluster %in% c(4, 6, 2) ~ "462",
-                            cluster %in% c(7) ~ "7"),
-         level1 = factor(level1, levels = c("13895", "4627")),
-         level2a = factor(level2a, levels = c("13", "895")),
-         level2b = factor(level2b, levels = c("462", "7")),
-         level2 = factor(level2, levels = c("13", "895", "462", "7"))) %>%
-  full_join(df_all_resp %>% 
-              rename(prev_cluster = cluster,
-                     prev_level1 = level1,
-                     prev_level2 = level2,
-                     prev_level2uncommon = level2uncommon,
-                     prev_level2common = level2common,
-                     prev_level3 = level3) %>%
-              mutate(abs_val_mean = abs(val_mean)))
+  full_join(d_prev) %>%
+  left_join(d_prev %>% 
+              filter(taves_ctry == "US") %>% 
+              distinct(question, prev) %>% 
+              rename("US_prev" = "prev")) %>%
+  arrange(cluster, desc(US_prev), taves_ctry)
+```
+
+<P style="page-break-before: always">
+## Cluster 1
+
+Here I'll plot the prevalence of endorsements in each site for each of the questions in Cluster 1. (Note that the order of clusters doesn't align with the top to bottom order of the previous plot - sorry if that's confusing, it's just an artifact of how the previous plot worked. Not very meaningful. This is the light orange cluster above.)
+
+I'll plot these questions in descending order of their prevalence in the US sample, just as a point of reference.
+
+```{r, fig.width = 5, fig.asp = 1}
+hclust_df %>%
+  filter(cluster == 1) %>%
+  mutate(question_text = gsub('(.{1,40})(\\s|$)', '\\1\n', question_text)) %>%
+  ggplot(aes(x = reorder(question_text, US_prev), y = prev,
+             fill = taves_ctry, color = taves_ctry)) +
+  facet_grid(~ taves_ctry, scales = "free") +
+  # geom_hline(yintercept = 0.5, lty = 2) +
+  geom_bar(stat = "identity", position = "identity", size = 1, alpha = 0.5) +
+  scale_fill_brewer(palette = "Dark2", guide = "none") +
+  scale_color_brewer(palette = "Dark2", guide = "none") +
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.5)) +
+  labs(title = "Cluster: 1",
+       x = "", y = "proportion saying YES") +
+  theme_bw() +
+  coord_flip()
+```
+
+It looks like the prevalence pattern here is low in the US and Thailand (~25%), slightly higher in China (but under 50%), and higher in Ghana and Vanuatu (generally over 50%).
+
+I won't try to interpret the meaning of these questions right now.
+
+
+<P style="page-break-before: always">
+## Cluster 2
+
+Now I'll plot the prevalence of endorsements in each site for each of the questions in Cluster 2 (the pink cluster in the overall plot).
+
+Again, I'll plot these questions in descending order of their prevalence in the US sample, just as a point of reference.
+
+```{r, fig.width = 5, fig.asp = 0.5}
+hclust_df %>%
+  filter(cluster == 2) %>%
+  mutate(question_text = gsub('(.{1,40})(\\s|$)', '\\1\n', question_text)) %>%
+  ggplot(aes(x = reorder(question_text, US_prev), y = prev,
+             fill = taves_ctry, color = taves_ctry)) +
+  facet_grid(~ taves_ctry, scales = "free") +
+  # geom_hline(yintercept = 0.5, lty = 2) +
+  geom_bar(stat = "identity", position = "identity", size = 1, alpha = 0.5) +
+  scale_fill_brewer(palette = "Dark2", guide = "none") +
+  scale_color_brewer(palette = "Dark2", guide = "none") +
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.5)) +
+  labs(title = "Cluster: 2",
+       x = "", y = "proportion saying YES") +
+  theme_bw() +
+  coord_flip()
+```
+
+It looks like the prevalence pattern here is something like very low in the US (generally < 10%), pretty low in Thailand and China (generally < 25%), middling in Ghana (around 25%), and moderate in Vanuatu (under 50%). But there are some exceptions here - e.g., #26 (where Thailand is highest); #47 and #39 (where all sites are comparable); #51 (where Ghana, Thailand, and China are all comparable). I would say that these questions are less good examples of this "cluster."
+
+
+<P style="page-break-before: always">
+## Cluster 3
+
+Now I'll plot the prevalence of endorsements in each site for each of the questions in Cluster 3 (the dark red cluster in the overall plot).
+
+Again, I'll plot these questions in descending order of their prevalence in the US sample, just as a point of reference.
+
+```{r, fig.width = 5, fig.asp = 0.7}
+hclust_df %>%
+  filter(cluster == 3) %>%
+  mutate(question_text = gsub('(.{1,40})(\\s|$)', '\\1\n', question_text)) %>%
+  ggplot(aes(x = reorder(question_text, US_prev), y = prev,
+             fill = taves_ctry, color = taves_ctry)) +
+  facet_grid(~ taves_ctry, scales = "free") +
+  # geom_hline(yintercept = 0.5, lty = 2) +
+  geom_bar(stat = "identity", position = "identity", size = 1, alpha = 0.5) +
+  scale_fill_brewer(palette = "Dark2", guide = "none") +
+  scale_color_brewer(palette = "Dark2", guide = "none") +
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.5)) +
+  labs(title = "Cluster: 3",
+       x = "", y = "proportion saying YES") +
+  theme_bw() +
+  coord_flip()
+```
+
+It looks like the prevalence pattern here is generally low (~25%) across the board, but slightly higher in Ghana and Vanuatu (closer to 40%).
+
+
+<P style="page-break-before: always">
+## Cluster 4
+
+Now I'll plot the prevalence of endorsements in each site for each of the questions in Cluster 4 (the light blue cluster in the overall plot).
+
+Again, I'll plot these questions in descending order of their prevalence in the US sample, just as a point of reference.
+
+```{r, fig.width = 5, fig.asp = 0.3}
+hclust_df %>%
+  filter(cluster == 4) %>%
+  mutate(question_text = gsub('(.{1,40})(\\s|$)', '\\1\n', question_text)) %>%
+  ggplot(aes(x = reorder(question_text, US_prev), y = prev,
+             fill = taves_ctry, color = taves_ctry)) +
+  facet_grid(~ taves_ctry, scales = "free") +
+  # geom_hline(yintercept = 0.5, lty = 2) +
+  geom_bar(stat = "identity", position = "identity", size = 1, alpha = 0.5) +
+  scale_fill_brewer(palette = "Dark2", guide = "none") +
+  scale_color_brewer(palette = "Dark2", guide = "none") +
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.5)) +
+  labs(title = "Cluster: 4",
+       x = "", y = "proportion saying YES") +
+  theme_bw() +
+  coord_flip()
+```
+
+It looks like the prevalence pattern here is generally comparable and pretty high (~75%) across the board, especially in China and Thailand.
+
+
+<P style="page-break-before: always">
+## Cluster 5
+
+Now I'll plot the prevalence of endorsements in each site for each of the questions in Cluster 5 (the dark orange cluster in the overall plot).
+
+Again, I'll plot these questions in descending order of their prevalence in the US sample, just as a point of reference.
+
+```{r, fig.width = 5, fig.asp = 0.6}
+hclust_df %>%
+  filter(cluster == 5) %>%
+  mutate(question_text = gsub('(.{1,40})(\\s|$)', '\\1\n', question_text)) %>%
+  ggplot(aes(x = reorder(question_text, US_prev), y = prev,
+             fill = taves_ctry, color = taves_ctry)) +
+  facet_grid(~ taves_ctry, scales = "free") +
+  # geom_hline(yintercept = 0.5, lty = 2) +
+  geom_bar(stat = "identity", position = "identity", size = 1, alpha = 0.5) +
+  scale_fill_brewer(palette = "Dark2", guide = "none") +
+  scale_color_brewer(palette = "Dark2", guide = "none") +
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.5)) +
+  labs(title = "Cluster: 5",
+       x = "", y = "proportion saying YES") +
+  theme_bw() +
+  coord_flip()
+```
+
+It looks like the prevalence pattern here is generally comparable and moderate (~25%) across the board, but higher in Ghana and Vanuatu (closer to 50%).
+
+
+<P style="page-break-before: always">
+## Cluster 6
+
+Now I'll plot the prevalence of endorsements in each site for each of the questions in Cluster 6 (the dark green cluster in the overall plot).
+
+Again, I'll plot these questions in descending order of their prevalence in the US sample, just as a point of reference.
+
+```{r, fig.width = 5, fig.asp = 0.3}
+hclust_df %>%
+  filter(cluster == 6) %>%
+  mutate(question_text = gsub('(.{1,40})(\\s|$)', '\\1\n', question_text)) %>%
+  ggplot(aes(x = reorder(question_text, US_prev), y = prev,
+             fill = taves_ctry, color = taves_ctry)) +
+  facet_grid(~ taves_ctry, scales = "free") +
+  # geom_hline(yintercept = 0.5, lty = 2) +
+  geom_bar(stat = "identity", position = "identity", size = 1, alpha = 0.5) +
+  scale_fill_brewer(palette = "Dark2", guide = "none") +
+  scale_color_brewer(palette = "Dark2", guide = "none") +
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.5)) +
+  labs(title = "Cluster: 6",
+       x = "", y = "proportion saying YES") +
+  theme_bw() +
+  coord_flip()
+```
+
+It looks like the prevalence pattern here is generally comparable and moderate (~25%) in the US and Thailand, but higher in Ghana, China, and especially Vanuatu (>50%).
+
+
+<P style="page-break-before: always">
+## Cluster 7
+
+Now I'll plot the prevalence of endorsements in each site for each of the questions in Cluster 7 (the dark blue cluster in the overall plot).
+
+Again, I'll plot these questions in descending order of their prevalence in the US sample, just as a point of reference.
+
+```{r, fig.width = 5, fig.asp = 0.7}
+hclust_df %>%
+  filter(cluster == 7) %>%
+  mutate(question_text = gsub('(.{1,40})(\\s|$)', '\\1\n', question_text)) %>%
+  ggplot(aes(x = reorder(question_text, US_prev), y = prev,
+             fill = taves_ctry, color = taves_ctry)) +
+  facet_grid(~ taves_ctry, scales = "free") +
+  # geom_hline(yintercept = 0.5, lty = 2) +
+  geom_bar(stat = "identity", position = "identity", size = 1, alpha = 0.5) +
+  scale_fill_brewer(palette = "Dark2", guide = "none") +
+  scale_color_brewer(palette = "Dark2", guide = "none") +
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.5)) +
+  labs(title = "Cluster: 7",
+       x = "", y = "proportion saying YES") +
+  theme_bw() +
+  coord_flip()
+```
+
+It looks like the prevalence pattern here is generally moderate (~25%) in the US and Thailand, higher in Ghana and Vanuatu (~50%), and especially high in China (~60%).
+
+
+<P style="page-break-before: always">
+## Cluster 8
+
+Now I'll plot the prevalence of endorsements in each site for each of the questions in Cluster 8 (the light purple cluster in the overall plot).
+
+Again, I'll plot these questions in descending order of their prevalence in the US sample, just as a point of reference.
+
+```{r, fig.width = 5, fig.asp = 0.7}
+hclust_df %>%
+  filter(cluster == 8) %>%
+  mutate(question_text = gsub('(.{1,40})(\\s|$)', '\\1\n', question_text)) %>%
+  ggplot(aes(x = reorder(question_text, US_prev), y = prev,
+             fill = taves_ctry, color = taves_ctry)) +
+  facet_grid(~ taves_ctry, scales = "free") +
+  # geom_hline(yintercept = 0.5, lty = 2) +
+  geom_bar(stat = "identity", position = "identity", size = 1, alpha = 0.5) +
+  scale_fill_brewer(palette = "Dark2", guide = "none") +
+  scale_color_brewer(palette = "Dark2", guide = "none") +
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.5)) +
+  labs(title = "Cluster: 8",
+       x = "", y = "proportion saying YES") +
+  theme_bw() +
+  coord_flip()
+```
+
+It looks like the prevalence pattern here is generally moderate (~25%) across the board, maybe a little higher in China and Vanuatu (closer to 40%).
+
+
+<P style="page-break-before: always">
+## Cluster 9
+
+Now I'll plot the prevalence of endorsements in each site for each of the questions in Cluster 9 (the light green cluster in the overall plot).
+
+Again, I'll plot these questions in descending order of their prevalence in the US sample, just as a point of reference.
+
+```{r, fig.width = 5, fig.asp = 0.4}
+hclust_df %>%
+  filter(cluster == 9) %>%
+  mutate(question_text = gsub('(.{1,40})(\\s|$)', '\\1\n', question_text)) %>%
+  ggplot(aes(x = reorder(question_text, US_prev), y = prev,
+             fill = taves_ctry, color = taves_ctry)) +
+  facet_grid(~ taves_ctry, scales = "free") +
+  # geom_hline(yintercept = 0.5, lty = 2) +
+  geom_bar(stat = "identity", position = "identity", size = 1, alpha = 0.5) +
+  scale_fill_brewer(palette = "Dark2", guide = "none") +
+  scale_color_brewer(palette = "Dark2", guide = "none") +
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.5)) +
+  labs(title = "Cluster: 9",
+       x = "", y = "proportion saying YES") +
+  theme_bw() +
+  coord_flip()
+```
+
+It looks like the prevalence pattern here is generally high (~50%) across the board, and espcially in China (closer to 70%).
+
+
+# Hierarchical clustering pretending we only had 2 sites (US and Ghana)
+
+Here I will try to approximate what it would be like to do this analysis with only 2 sites, to give a sense of whether this would make sense for the 1.0 data. I'll limit the data to only 2 sites (US and Ghana) and do everything I did before.
+
+```{r}
+hclust_prev2 <- d_prev_wide %>% 
+  rownames_to_column("taves_ctry") %>%
+  filter(taves_ctry %in% c("US", "Ghana")) %>%
+  column_to_rownames("taves_ctry") %>%
+  t() %>% 
+  dist() %>% 
+  hclust()
+```
+
+```{r, fig.width = 8, fig.asp = 1}
+hclust_prev2 %>% 
+  as.dendrogram() %>% 
+  set("labels_col", k = 8, value = c("#a6cee3", "#1f78b4", "#b2df8a",
+                                     "#33a02c", "#fb9a99", "#e31a1c", 
+                                     "#fdbf6f", "#ff7f00", "#cab2d6")) %>% 
+  plot(horiz = T, xlim = c(1.5, -12), axes = F)
+```
+
+Here, 8 seems like a reasonable number of clusters to look at. I wish that the light orange cluster weren't a cluster of 1, but it requires going down to just 5 clusters to get there, which means that the other clusters get quite large.
+
+```{r}
+hclust_df2 <- data.frame(cluster = cutree(hclust_prev2, 8)) %>%
+  rownames_to_column("question_text") %>%
+  full_join(d_prev %>% filter(taves_ctry %in% c("US", "Ghana"))) %>%
+  left_join(d_prev %>% 
+              filter(taves_ctry == "US") %>% 
+              distinct(question, prev) %>% 
+              rename("US_prev" = "prev")) %>%
+  arrange(cluster, desc(US_prev), taves_ctry)
+```
+
+## Cluster 1
+
+Following the 5-site analysis above, here I'll plot the prevalence of endorsements in each site for each of the questions in Cluster 1. (This is the pink cluster above.)
+
+I'll plot these questions in descending order of their prevalence in the US sample, just as a point of reference.
+
+```{r, fig.width = 5, fig.asp = 1}
+hclust_df2 %>%
+  filter(cluster == 1) %>%
+  mutate(question_text = gsub('(.{1,40})(\\s|$)', '\\1\n', question_text)) %>%
+  ggplot(aes(x = reorder(question_text, US_prev), y = prev,
+             fill = taves_ctry, color = taves_ctry)) +
+  facet_grid(~ taves_ctry, scales = "free") +
+  # geom_hline(yintercept = 0.5, lty = 2) +
+  geom_bar(stat = "identity", position = "identity", size = 1, alpha = 0.5) +
+  scale_fill_brewer(palette = "Dark2", guide = "none") +
+  scale_color_brewer(palette = "Dark2", guide = "none") +
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.5)) +
+  labs(title = "Cluster: 1",
+       x = "", y = "proportion saying YES") +
+  theme_bw() +
+  coord_flip()
+```
+
+It looks like the prevalence pattern here is moderate in the US (>25%) and higher in Ghana (close to 50%).
+
+
+<P style="page-break-before: always">
+## Cluster 2
+
+Now I'll plot the prevalence of endorsements in each site for each of the questions in Cluster 2 (the light green cluster in the overall plot).
+
+Again, I'll plot these questions in descending order of their prevalence in the US sample, just as a point of reference.
+
+```{r, fig.width = 5, fig.asp = 0.5}
+hclust_df2 %>%
+  filter(cluster == 2) %>%
+  mutate(question_text = gsub('(.{1,40})(\\s|$)', '\\1\n', question_text)) %>%
+  ggplot(aes(x = reorder(question_text, US_prev), y = prev,
+             fill = taves_ctry, color = taves_ctry)) +
+  facet_grid(~ taves_ctry, scales = "free") +
+  # geom_hline(yintercept = 0.5, lty = 2) +
+  geom_bar(stat = "identity", position = "identity", size = 1, alpha = 0.5) +
+  scale_fill_brewer(palette = "Dark2", guide = "none") +
+  scale_color_brewer(palette = "Dark2", guide = "none") +
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.5)) +
+  labs(title = "Cluster: 2",
+       x = "", y = "proportion saying YES") +
+  theme_bw() +
+  coord_flip()
+```
+
+It looks like the prevalence pattern here is low in the US (<10%) and moderate in Ghana (~25%).
+
+
+<P style="page-break-before: always">
+## Cluster 3
+
+Now I'll plot the prevalence of endorsements in each site for each of the questions in Cluster 3 (the dark green cluster in the overall plot).
+
+Again, I'll plot these questions in descending order of their prevalence in the US sample, just as a point of reference.
+
+```{r, fig.width = 5, fig.asp = 0.7}
+hclust_df2 %>%
+  filter(cluster == 3) %>%
+  mutate(question_text = gsub('(.{1,40})(\\s|$)', '\\1\n', question_text)) %>%
+  ggplot(aes(x = reorder(question_text, US_prev), y = prev,
+             fill = taves_ctry, color = taves_ctry)) +
+  facet_grid(~ taves_ctry, scales = "free") +
+  # geom_hline(yintercept = 0.5, lty = 2) +
+  geom_bar(stat = "identity", position = "identity", size = 1, alpha = 0.5) +
+  scale_fill_brewer(palette = "Dark2", guide = "none") +
+  scale_color_brewer(palette = "Dark2", guide = "none") +
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.5)) +
+  labs(title = "Cluster: 3",
+       x = "", y = "proportion saying YES") +
+  theme_bw() +
+  coord_flip()
+```
+
+It looks like the prevalence pattern here is relatively high across the board (>50%).
+
+
+<P style="page-break-before: always">
+## Cluster 4
+
+Now I'll plot the prevalence of endorsements in each site for each of the questions in Cluster 4 (the dark blue cluster in the overall plot).
+
+Again, I'll plot these questions in descending order of their prevalence in the US sample, just as a point of reference.
+
+```{r, fig.width = 5, fig.asp = 1}
+hclust_df2 %>%
+  filter(cluster == 4) %>%
+  mutate(question_text = gsub('(.{1,40})(\\s|$)', '\\1\n', question_text)) %>%
+  ggplot(aes(x = reorder(question_text, US_prev), y = prev,
+             fill = taves_ctry, color = taves_ctry)) +
+  facet_grid(~ taves_ctry, scales = "free") +
+  # geom_hline(yintercept = 0.5, lty = 2) +
+  geom_bar(stat = "identity", position = "identity", size = 1, alpha = 0.5) +
+  scale_fill_brewer(palette = "Dark2", guide = "none") +
+  scale_color_brewer(palette = "Dark2", guide = "none") +
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.5)) +
+  labs(title = "Cluster: 4",
+       x = "", y = "proportion saying YES") +
+  theme_bw() +
+  coord_flip()
+```
+
+It looks like the prevalence pattern here is generally moderate across the two sites (~25%), slightly higher in Ghana (~40%).
+
+
+<P style="page-break-before: always">
+## Cluster 5
+
+Now I'll plot the prevalence of endorsements in each site for each of the questions in Cluster 5 (the dark red cluster in the overall plot).
+
+Again, I'll plot these questions in descending order of their prevalence in the US sample, just as a point of reference.
+
+```{r, fig.width = 5, fig.asp = 0.6}
+hclust_df2 %>%
+  filter(cluster == 5) %>%
+  mutate(question_text = gsub('(.{1,40})(\\s|$)', '\\1\n', question_text)) %>%
+  ggplot(aes(x = reorder(question_text, US_prev), y = prev,
+             fill = taves_ctry, color = taves_ctry)) +
+  facet_grid(~ taves_ctry, scales = "free") +
+  # geom_hline(yintercept = 0.5, lty = 2) +
+  geom_bar(stat = "identity", position = "identity", size = 1, alpha = 0.5) +
+  scale_fill_brewer(palette = "Dark2", guide = "none") +
+  scale_color_brewer(palette = "Dark2", guide = "none") +
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.5)) +
+  labs(title = "Cluster: 5",
+       x = "", y = "proportion saying YES") +
+  theme_bw() +
+  coord_flip()
+```
+
+It looks like the prevalence pattern here is generally comparable and moderate (close to 50%) across the board - if anything, perhaps a little higher in the US on a couple of items.
+
+
+<P style="page-break-before: always">
+## Cluster 6
+
+Now I'll plot the prevalence of endorsements in each site for each of the questions in Cluster 6 (the light blue cluster in the overall plot).
+
+Again, I'll plot these questions in descending order of their prevalence in the US sample, just as a point of reference.
+
+```{r, fig.width = 5, fig.asp = 0.4}
+hclust_df2 %>%
+  filter(cluster == 6) %>%
+  mutate(question_text = gsub('(.{1,40})(\\s|$)', '\\1\n', question_text)) %>%
+  ggplot(aes(x = reorder(question_text, US_prev), y = prev,
+             fill = taves_ctry, color = taves_ctry)) +
+  facet_grid(~ taves_ctry, scales = "free") +
+  # geom_hline(yintercept = 0.5, lty = 2) +
+  geom_bar(stat = "identity", position = "identity", size = 1, alpha = 0.5) +
+  scale_fill_brewer(palette = "Dark2", guide = "none") +
+  scale_color_brewer(palette = "Dark2", guide = "none") +
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.5)) +
+  labs(title = "Cluster: 6",
+       x = "", y = "proportion saying YES") +
+  theme_bw() +
+  coord_flip()
+```
+
+It looks like the prevalence pattern here is very low in the US (<10%) and slightly higher in Ghana (~20%).
+
+<P style="page-break-before: always">
+## Cluster 7
+
+Now I'll plot the prevalence of endorsements in each site for each of the questions in Cluster 7 (the dark orange cluster in the overall plot).
+
+Again, I'll plot these questions in descending order of their prevalence in the US sample, just as a point of reference.
+
+```{r, fig.width = 5, fig.asp = 0.4}
+hclust_df2 %>%
+  filter(cluster == 7) %>%
+  mutate(question_text = gsub('(.{1,40})(\\s|$)', '\\1\n', question_text)) %>%
+  ggplot(aes(x = reorder(question_text, US_prev), y = prev,
+             fill = taves_ctry, color = taves_ctry)) +
+  facet_grid(~ taves_ctry, scales = "free") +
+  # geom_hline(yintercept = 0.5, lty = 2) +
+  geom_bar(stat = "identity", position = "identity", size = 1, alpha = 0.5) +
+  scale_fill_brewer(palette = "Dark2", guide = "none") +
+  scale_color_brewer(palette = "Dark2", guide = "none") +
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.5)) +
+  labs(title = "Cluster: 7",
+       x = "", y = "proportion saying YES") +
+  theme_bw() +
+  coord_flip()
+```
+
+It looks like the prevalence pattern here is fairly low in the US (<25%) and high in Ghana (>50%).
+
+
+<P style="page-break-before: always">
+## Cluster 8
+
+Now I'll plot the prevalence of endorsements in each site for each of the questions in Cluster 8 (the other half of the dark green cluster in the overall plot).
+
+Again, I'll plot these questions in descending order of their prevalence in the US sample, just as a point of reference.
+
+```{r, fig.width = 5, fig.asp = 0.2}
+hclust_df2 %>%
+  filter(cluster == 8) %>%
+  mutate(question_text = gsub('(.{1,40})(\\s|$)', '\\1\n', question_text)) %>%
+  ggplot(aes(x = reorder(question_text, US_prev), y = prev,
+             fill = taves_ctry, color = taves_ctry)) +
+  facet_grid(~ taves_ctry, scales = "free") +
+  # geom_hline(yintercept = 0.5, lty = 2) +
+  geom_bar(stat = "identity", position = "identity", size = 1, alpha = 0.5) +
+  scale_fill_brewer(palette = "Dark2", guide = "none") +
+  scale_color_brewer(palette = "Dark2", guide = "none") +
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.5)) +
+  labs(title = "Cluster: 8",
+       x = "", y = "proportion saying YES") +
+  theme_bw() +
+  coord_flip()
+```
+
+This is one item and it happens to be moderate inthe US and high in Ghana. I wouldn't make much of this factor.
+
+<P style="page-break-before: always">
+
+```{r, include = F}
+# Comparing cluster analyses
+full_join(hclust_df %>%
+            distinct(cluster, question, question_text) %>%
+            rename(cluster_5sites = cluster),
+          hclust_df2 %>%
+            distinct(cluster, question) %>%
+            rename(cluster_2sites = cluster)) %>%
+  select(question, question_text, cluster_5sites, cluster_2sites) %>%
+  count(cluster_5sites, cluster_2sites) %>%
+  group_by(cluster_5sites) %>%
+  mutate(prop = n/sum(n)) %>%
+  top_n(1, prop) %>% 
+  arrange(desc(prop))
+```
+
+```{r, include = F}
+hclust_prev3 <- d_prev_wide %>% 
+  rownames_to_column("taves_ctry") %>%
+  filter(!taves_ctry %in% c("US", "Ghana")) %>%
+  column_to_rownames("taves_ctry") %>%
+  t() %>% 
+  dist() %>% 
+  hclust()
+```
+
+```{r, include = F}
+hclust_df3 <- data.frame(cluster = cutree(hclust_prev3, 8)) %>%
+  rownames_to_column("question_text") %>%
+  full_join(d_prev %>% filter(!taves_ctry %in% c("US", "Ghana"))) %>%
+  left_join(d_prev %>% 
+              filter(taves_ctry == "US") %>% 
+              distinct(question, prev) %>% 
+              rename("US_prev" = "prev")) %>%
+  arrange(cluster, desc(US_prev), taves_ctry)
+```
+
+```{r, include = F}
+full_join(hclust_df2 %>%
+            distinct(cluster, question, question_text) %>%
+            rename(cluster_USGH = cluster),
+          hclust_df3 %>%
+            distinct(cluster, question) %>%
+            rename(cluster_THCHVT = cluster)) %>%
+  select(question, question_text, cluster_USGH, cluster_THCHVT) %>%
+  count(cluster_USGH, cluster_THCHVT) %>%
+  group_by(cluster_USGH) %>%
+  mutate(prop = n/sum(n)) %>%
+  top_n(1, prop) %>% 
+  arrange(desc(prop))
+```
+
+
+# Testing predictions
+
+These are predictions we articulated as a group on 2018-12-10
+
+```{r, include = F}
+hclust_df_grouped <- hclust_df %>%
+  mutate(level1 = case_when(cluster %in% c(6, 9, 7, 4) ~ "6794",
+                            cluster %in% c(8, 5, 1, 3, 2) ~ "85132"),
+         level2uncommon = case_when(cluster %in% c(8, 5, 1) ~ "851",
+                                    cluster %in% c(3, 2) ~ "32",
+                                    TRUE ~ NA_character_),
+         level2common = case_when(cluster %in% c(6, 9, 7) ~ "679",
+                                  cluster %in% c(4) ~ "4",
+                                  TRUE ~ NA_character_),
+         level3 = case_when(cluster %in% c(6, 9) ~ "69",
+                            cluster %in% c(7) ~ "7")) %>%
+  mutate(level1 = factor(level1, levels = c("85132", "6794")),
+         level2uncommon = factor(level2uncommon, levels = c("32", "851")),
+         level2common = factor(level2common, levels = c("679", "4")),
+         level3 = factor(level3, levels = c("7", "69")))
+```
+
+```{r, include = F}
+hclust_df_grouped <- hclust_df_grouped %>%
+  full_join(d_base %>%
+              rownames_to_column("taves_subj") %>%
+              gather(question, response, -taves_subj) %>%
+              full_join(d0 %>% distinct(taves_ctry, taves_subj)) %>%
+              filter(!is.na(response), !grepl("num", question)) %>%
+              count(taves_ctry, question))
+```
+
+
+## Clusters 6794 are more common than the others
+
+```{r}
+glmer(prev ~ level1 + (1|question) + (1|taves_ctry),
+      hclust_df_grouped,
+      family = "binomial", weights = n) %>% 
+  summary()
 ```
 
 ```{r}
-temp_df %>%
-  count(cluster, prev_cluster)
+hclust_df_grouped %>%
+  group_by(level1, taves_ctry) %>%
+  multi_boot_standard("prev") %>%
+  ungroup() %>%
+  mutate(taves_ctry = factor(taves_ctry, 
+                             levels = c("US", "Ghana", "Thailand", 
+                                        "China", "Vanuatu"))) %>%
+  ggplot(aes(x = level1, y = mean, color = taves_ctry)) + 
+  geom_pointrange(aes(ymin = ci_lower, ymax = ci_upper),
+                  position = position_dodge(width = 0.5)) +
+  ylim(0, 1) +
+  scale_color_brewer(palette = "Dark2") +
+  theme_bw() +
+  labs(title = "Prediction: Clusters 6794 are more common than the others",
+       x = "Cluster group (level 1 divide)", y = "Prevalence (0-1)",
+       color = "Site")
+```
+
+Yes, this prediction is upheld (both in the aggregate and looking at each site individually).
+
+
+<P style="page-break-before: always">
+## Clusters 679 appraised as religious more frequently than cluster 4
+
+```{r}
+d_appraisal_num2 <- d_appraisal_num %>%
+        rownames_to_column("taves_subj") %>%
+        full_join(d0 %>% distinct(taves_subj, taves_ctry)) %>%
+        gather(question, appraisal, -c(taves_subj, taves_ctry)) %>%
+        mutate(question = gsub("b_num", "", question)) %>%
+        full_join(hclust_df_grouped %>% 
+                    select(question, cluster, starts_with("level")) %>%
+                    distinct()) %>%
+  filter(!is.na(appraisal)) %>%
+  distinct()
+```
+
+```{r}
+lmer(appraisal ~ level2common + (1|question) + (1|taves_ctry/taves_subj),
+     d_appraisal_num2 %>% filter(!is.na(appraisal))) %>% 
+  summary()
+```
+
+```{r}
+d_appraisal_num2 %>%
+  filter(!is.na(level2common)) %>%
+  group_by(level2common, taves_ctry) %>%
+  multi_boot_standard("appraisal") %>%
+  ungroup() %>%
+  mutate(taves_ctry = factor(taves_ctry, 
+                             levels = c("US", "Ghana", "Thailand", 
+                                        "China", "Vanuatu"))) %>%
+  ggplot(aes(x = level2common, y = mean, color = taves_ctry)) +
+  geom_pointrange(aes(ymin = ci_lower, ymax = ci_upper),
+                  position = position_dodge(width = 0.5)) +
+  ylim(-1, 1) +
+  scale_color_brewer(palette = "Dark2") +
+  theme_bw() +
+  labs(title = "Prediction: Clusters 679 appraised as religious more frequently\nthan cluster 4",
+       x = "Cluster group (level 2 divide, among 'common' clusters only)", 
+       y = "Appraisal (-1 to +1)",
+       color = "Site")
+```
+
+```{r}
+d_appraisal_num2 %>%
+  filter(!is.na(level2common)) %>%
+  group_by(level2common, taves_ctry) %>%
+  multi_boot_standard("appraisal") %>%
+  ungroup() %>%
+  mutate(taves_ctry = factor(taves_ctry, 
+                             levels = c("US", "Ghana", "Thailand", 
+                                        "China", "Vanuatu"))) %>%
+  ggplot(aes(x = level2common, 
+             y = mean, color = taves_ctry)) + 
+  facet_grid(~ taves_ctry) +
+  geom_pointrange(aes(ymin = ci_lower, ymax = ci_upper),
+                  position = position_dodge(width = 0.5)) +
+  ylim(-1, 1) +
+  scale_color_brewer(palette = "Dark2") +
+  theme_bw() +
+  labs(title = "Prediction: Clusters 679 appraised as religious more frequently\nthan cluster 4",
+       x = "Cluster group (level 2 divide, among 'common' clusters only)", 
+       y = "Appraisal (-1 to +1)",
+       color = "Site")
+```
+
+The results for this prediction are mixed. It is *not* upheld in the aggregate, but seems to be true in the US, and possibly in Ghana and Vanuatu (i.e., Christian countries?).
+
+
+<P style="page-break-before: always">
+## Clusters 679 will be marked as positive/negative rather than cluster 4 (?)
+
+```{r}
+d_valence_num2 <- d_valence_num %>%
+  rownames_to_column("taves_subj") %>%
+  full_join(d0 %>% distinct(taves_subj, taves_ctry)) %>%
+  gather(question, valence, -c(taves_subj, taves_ctry)) %>%
+  mutate(question = gsub("d_num", "", question)) %>%
+  full_join(hclust_df_grouped %>%
+              select(question, cluster, starts_with("level")) %>%
+              distinct()) %>%
+  filter(!is.na(valence)) %>%
+  distinct()
+```
+
+```{r}
+lmer(abs(valence) ~ level2common + (1|question) + (1|taves_ctry/taves_subj),
+     d_valence_num2 %>% filter(!is.na(valence))) %>% 
+  summary()
+```
+
+```{r}
+d_valence_num2 %>%
+  filter(!is.na(level2common)) %>%
+  group_by(level2common, taves_ctry) %>%
+  mutate(valence = abs(valence)) %>%
+  multi_boot_standard("valence") %>%
+  ungroup() %>%
+  mutate(taves_ctry = factor(taves_ctry, 
+                             levels = c("US", "Ghana", "Thailand", 
+                                        "China", "Vanuatu"))) %>%
+  ggplot(aes(x = level2common, y = mean, color = taves_ctry)) +
+  geom_pointrange(aes(ymin = ci_lower, ymax = ci_upper),
+                  position = position_dodge(width = 0.5)) +
+  ylim(0, 1) +
+  scale_color_brewer(palette = "Dark2") +
+  theme_bw() +
+  labs(title = "Prediction: Clusters 679 will be marked as\npositive/negative rather than cluster 4",
+       x = "Cluster group (level 2 divide, among 'common' clusters only)", 
+       y = "Absolute valence (0 to 1)",
+       color = "Site")
+```
+
+Yes, this prediction is upheld (both in the aggregate and looking at each site individually, with the possible exception of Vanuatu).
+
+
+<P style="page-break-before: always">
+## Cluster 69 will be more positive than cluster 7
+
+```{r}
+lmer(valence ~ level3 + (1|question) + (1|taves_ctry/taves_subj),
+     d_valence_num2 %>% filter(!is.na(valence))) %>% 
+  summary()
+```
+
+```{r}
+d_valence_num2 %>%
+  filter(!is.na(level3)) %>%
+  group_by(level3, taves_ctry) %>%
+  multi_boot_standard("valence") %>%
+  ungroup() %>%
+  mutate(taves_ctry = factor(taves_ctry, 
+                             levels = c("US", "Ghana", "Thailand", 
+                                        "China", "Vanuatu"))) %>%
+  ggplot(aes(x = level3, y = mean, color = taves_ctry)) +
+  geom_pointrange(aes(ymin = ci_lower, ymax = ci_upper),
+                  position = position_dodge(width = 0.5)) +
+  ylim(-1, 1) +
+  scale_color_brewer(palette = "Dark2") +
+  theme_bw() +
+  labs(title = "Prediction: Clusters 69 appraised as more\npositive than 7",
+       x = "Cluster group (level 3 divide, ...)", 
+       y = "Valence (-1 to 1)",
+       color = "Site")
+```
+
+Yes, this prediction is clearly upheld (both in the aggregate and looking at each site individually).
+
+
+<P style="page-break-before: always">
+## Clusters 679 appraised as more significant than 4
+
+```{r}
+d_significance_num2 <- d_significance_num %>%
+        rownames_to_column("taves_subj") %>%
+        full_join(d0 %>% distinct(taves_subj, taves_ctry)) %>%
+        gather(question, significance, -c(taves_subj, taves_ctry)) %>%
+        mutate(question = gsub("e_num", "", question)) %>%
+        full_join(hclust_df_grouped %>% 
+                    select(question, cluster, starts_with("level")) %>%
+                    distinct()) %>%
+  filter(!is.na(significance)) %>%
+  distinct()
+```
+
+```{r}
+lmer(significance ~ level2common + (1|question) + (1|taves_ctry/taves_subj),
+     d_significance_num2 %>% filter(!is.na(significance))) %>% 
+  summary()
+```
+
+```{r}
+d_significance_num2 %>%
+  filter(!is.na(level2common)) %>%
+  group_by(level2common, taves_ctry) %>%
+  multi_boot_standard("significance") %>%
+  ungroup() %>%
+  mutate(taves_ctry = factor(taves_ctry, 
+                             levels = c("US", "Ghana", "Thailand", 
+                                        "China", "Vanuatu"))) %>%
+  ggplot(aes(x = level2common, y = mean, color = taves_ctry)) +
+  geom_pointrange(aes(ymin = ci_lower, ymax = ci_upper),
+                  position = position_dodge(width = 0.5)) +
+  ylim(0, 1) +
+  scale_color_brewer(palette = "Dark2") +
+  theme_bw() +
+  labs(title = "Prediction: Clusters 679 appraised as more\nsignificant than 4",
+       x = "Cluster group (level 2 divide, among 'common' clusters only)", 
+       y = "Significance (0 to 1)",
+       color = "Site")
+```
+
+Yes, this prediction is upheld (both in the aggregate and looking at each site individually).
+
+
+<P style="page-break-before: always">
+## Clusters 851 more common than clusters 32
+
+```{r}
+glmer(prev ~ level2uncommon + (1|question) + (1|taves_ctry),
+      hclust_df_grouped,
+      family = "binomial", weights = n) %>% 
+  summary()
+```
+
+```{r}
+hclust_df_grouped %>%
+  filter(!is.na(level2uncommon)) %>%
+  group_by(level2uncommon, taves_ctry) %>%
+  multi_boot_standard("prev") %>%
+  ungroup() %>%
+  mutate(taves_ctry = factor(taves_ctry, 
+                             levels = c("US", "Ghana", "Thailand", 
+                                        "China", "Vanuatu"))) %>%
+  ggplot(aes(x = level2uncommon, y = mean, color = taves_ctry)) + 
+  geom_pointrange(aes(ymin = ci_lower, ymax = ci_upper),
+                  position = position_dodge(width = 0.5)) +
+  ylim(0, 1) +
+  scale_color_brewer(palette = "Dark2") +
+  theme_bw() +
+  labs(title = "Prediction: Clusters 851 more common than clusters 32",
+       x = "Cluster group (level 2 divide, among 'uncommon' clusters only)", 
+       y = "Prevalence (0-1)", color = "Site")
+```
+
+Yes, this prediction is upheld (both in the aggregate and looking at each site individually, with the probable exception of Vanuatu).
+
+
+<P style="page-break-before: always">
+## Clusters 8 to 5 to 1: increases in divergence between countries
+
+```{r}
+hclust_df_grouped %>%
+  filter(cluster %in% c("1", "5", "8")) %>% 
+  group_by(cluster, taves_ctry) %>%
+  summarise(mean_prev = mean(prev, na.rm = T)) %>%
+  group_by(cluster) %>%
+  summarise(sd = sd(mean_prev))
+
+bartlett.test(mean_prev ~ cluster, 
+              hclust_df_grouped %>%
+                filter(cluster %in% c("1", "5", "8")) %>%
+                group_by(cluster, taves_ctry) %>%
+                summarise(mean_prev = mean(prev, na.rm = T)))
+
+bartlett.test(mean_prev ~ cluster, 
+              hclust_df_grouped %>%
+                filter(cluster %in% c("1", "5")) %>%
+                group_by(cluster, taves_ctry) %>%
+                summarise(mean_prev = mean(prev, na.rm = T)))
+
+bartlett.test(mean_prev ~ cluster, 
+              hclust_df_grouped %>%
+                filter(cluster %in% c("5", "8")) %>%
+                group_by(cluster, taves_ctry) %>%
+                summarise(mean_prev = mean(prev, na.rm = T)))
+```
+
+```{r}
+hclust_df_grouped %>%
+  filter(cluster %in% c("1", "5", "8")) %>%
+  group_by(cluster, taves_ctry) %>%
+  multi_boot_standard("prev") %>%
+  ungroup() %>%
+  mutate(taves_ctry = factor(taves_ctry, 
+                             levels = c("US", "Ghana", "Thailand", 
+                                        "China", "Vanuatu"))) %>%
+  ggplot(aes(x = factor(cluster, levels = c("8", "5", "1")), 
+             y = mean, color = taves_ctry)) + 
+  geom_pointrange(aes(ymin = ci_lower, ymax = ci_upper),
+                  position = position_dodge(width = 0.5)) +
+  ylim(0, 1) +
+  scale_color_brewer(palette = "Dark2") +
+  theme_bw() +
+  labs(title = "Prediction: Clusters 8 to 5 to 1: increases in divergence\nbetween countries",
+       x = "Cluster group (level 2 divide, among 'uncommon' clusters only)", 
+       y = "Prevalence (0-1)", color = "Site")
+```
+
+This prediction looks like it's upheld according to the plot (dots for each site are closest together for cluster 8 and most scattered for cluster 1). It doesn't come out as significant in a formal test of the variability across the five sites for each cluster, but I'm not sure whether I'd expect that to come out or not, given the sample size (n = 5 sites). (Genuinely not sure!)
+
+
+<P style="page-break-before: always">
+## Clusters 8 to 5 to 1: decreases in frequency
+
+```{r}
+glmer(prev ~ cluster + (1|question) + (1|taves_ctry),
+      hclust_df_grouped %>%
+        filter(cluster %in% c("1", "5", "8")) %>%
+        mutate(cluster = factor(cluster, levels = c("8", "5", "1"))),
+      contrasts = list(cluster = contr.poly(3)),
+      family = "binomial", weights = n) %>% 
+  summary()
+```
+
+```{r}
+hclust_df_grouped %>%
+  filter(cluster %in% c("1", "5", "8")) %>%
+  group_by(cluster, taves_ctry) %>%
+  multi_boot_standard("prev") %>%
+  ungroup() %>%
+  mutate(taves_ctry = factor(taves_ctry, 
+                             levels = c("US", "Ghana", "Thailand", 
+                                        "China", "Vanuatu"))) %>%
+  ggplot(aes(x = factor(cluster, levels = c("8", "5", "1")), 
+             y = mean, color = taves_ctry)) + 
+  geom_pointrange(aes(ymin = ci_lower, ymax = ci_upper),
+                  position = position_dodge(width = 0.5)) +
+  ylim(0, 1) +
+  scale_color_brewer(palette = "Dark2") +
+  theme_bw() +
+  labs(title = "Prediction: Clusters 8 to 5 to 1: decreases in frequency",
+       x = "Cluster group (level 2 divide, among 'uncommon' clusters only)", 
+       y = "Prevalence (0-1)", color = "Site")
+```
+
+No, this prediction is *not* upheld (either in the aggregate or looking at each site individually, with the possible exception of Thailand). If anything, cluster 1 generally seems to be the most common of these three clusters.
+
+
+<P style="page-break-before: always">
+## Clusters 32: GH and VT stand out for their endorsement
+
+```{r}
+glmer(prev ~ level2uncommon * taves_ctry + (1|question),
+      hclust_df_grouped %>%
+        filter(!is.na(level2uncommon)) %>%
+        mutate(taves_ctry = factor(taves_ctry,
+                                   levels = c("US", "Ghana", "Thailand",
+                                              "China", "Vanuatu"))),
+      contrasts = list(taves_ctry = cbind("US_other" = c(4, -1, -1, -1, -1),
+                                          "GHVT_THCH" = c(0, 1, -1, -1, 1),
+                                          "GH_VT" = c(0, 1, 0, 0, -1),
+                                          "TH_CH" = c(0, 0, -1, 1, 0))),
+      family = "binomial", weights = n) %>% 
+  summary()
+```
+
+```{r}
+hclust_df_grouped %>%
+  filter(!is.na(level2uncommon)) %>%
+  group_by(level2uncommon, taves_ctry) %>%
+  multi_boot_standard("prev") %>%
+  ungroup() %>%
+  mutate(taves_ctry = factor(taves_ctry, 
+                             levels = c("US", "Ghana", "Thailand", 
+                                        "China", "Vanuatu")),
+         GHVT_oth = case_when(taves_ctry %in% c("Ghana", "Vanuatu") ~ "GH & VT",
+                              TRUE ~ "other")) %>%
+  ggplot(aes(x = level2uncommon, y = mean, color = taves_ctry, shape = GHVT_oth)) + 
+  geom_pointrange(aes(ymin = ci_lower, ymax = ci_upper),
+                  position = position_dodge(width = 0.5)) +
+  ylim(0, 1) +
+  scale_color_brewer(palette = "Dark2") +
+  theme_bw() +
+  labs(title = "Prediction: Clusters 32: GH and VT stand out for\ntheir endorsement",
+       x = "Cluster group (level 2 divide, among 'uncommon' clusters only)", 
+       y = "Prevalence (0-1)", color = "Site", shape = "Ghana/Vanuatu?")
+```
+
+Yes, this prediction is upheld, but rather weakly: Ghana and Vanuatu stand out in both clusters 32 and clusters 851, but they stand out a little more (gap between them and other countries is a little bigger) in clusters 32.
+
+
+<P style="page-break-before: always">
+# Overall summaries of prevalence, appraisal, valence, & significance
+
+```{r, include = F}
+df_prevalence <- d_base_num %>%
+  rownames_to_column("taves_subj") %>%
+  full_join(d0 %>% select(taves_subj, taves_ctry)) %>%
+  gather(question, endorsement, -c(taves_subj, taves_ctry)) %>%
+  mutate(question = gsub("_num", "", question)) %>%
+  filter(!is.na(endorsement)) %>%
+  group_by(taves_ctry, question) %>%
+  mutate(prev_n = n()) %>%
+  group_by(prev_n, add = T) %>%
+  multi_boot_standard("endorsement") %>%
+  ungroup() %>%
+  rename(prev_ci_lower = ci_lower,
+         prev_ci_upper = ci_upper,
+         prev_mean = mean)
+
+df_appraisal <- d_appraisal_num2 %>%
+  mutate(question = gsub("._num", "", question)) %>%
+  filter(!is.na(appraisal)) %>%
+  group_by(taves_ctry, level1, level2uncommon, level2common, level3, 
+           cluster, question) %>%
+  mutate(app_n = n()) %>%
+  group_by(app_n, add = T) %>%
+  multi_boot_standard("appraisal") %>%
+  ungroup() %>%
+  rename(app_ci_lower = ci_lower,
+         app_ci_upper = ci_upper,
+         app_mean = mean)
+
+df_valence <- d_valence_num2 %>%
+  mutate(question = gsub("._num", "", question)) %>%
+  filter(!is.na(valence)) %>%
+  group_by(taves_ctry, level1, level2uncommon, level2common, level3, 
+           cluster, question) %>%
+  mutate(val_n = n()) %>%
+  group_by(val_n, add = T) %>%
+  multi_boot_standard("valence") %>%
+  ungroup() %>%
+  rename(val_ci_lower = ci_lower,
+         val_ci_upper = ci_upper,
+         val_mean = mean)
+
+df_significance <- d_significance_num2 %>%
+  mutate(question = gsub("._num", "", question)) %>%
+  filter(!is.na(significance)) %>%
+  group_by(taves_ctry, level1, level2uncommon, level2common, level3, 
+           cluster, question) %>%
+  mutate(sig_n = n()) %>%
+  group_by(sig_n, add = T) %>%
+  multi_boot_standard("significance") %>%
+  ungroup() %>%
+  rename(sig_ci_lower = ci_lower,
+         sig_ci_upper = ci_upper,
+         sig_mean = mean)
+
+df_all_resp <- hclust_df_grouped %>% 
+  distinct(question, question_text, US_prev,  
+           level1, level2uncommon, level2common, level3, cluster) %>%
+  rename(prev_US = US_prev) %>%
+  full_join(df_prevalence) %>%
+  full_join(df_appraisal) %>%
+  full_join(df_valence) %>%
+  full_join(df_significance) %>%
+  mutate(level2 = ifelse(is.na(level2uncommon), 
+                         as.character(level2common), 
+                         as.character(level2uncommon)),
+         cluster = factor(cluster,
+                          levels = c("8", "5", "1", "3", "2",
+                                     "6", "9", "7", "4"),
+                          labels = c("cluster 8", "cluster 5", "cluster 1",
+                                     "cluster 3", "cluster 2", "cluster 6",
+                                     "cluster 9", "cluster 7 ", "cluster 4")),
+         level1 = factor(level1,
+                         levels = c("85132", "6794"),
+                         labels = c("L1: 85132", "L1: 6794")),
+         level2 = factor(level2,
+                         levels = c("851", "32", "679", "4"),
+                         labels = c("L2: 851", "L2: 32", "L2: 679", "L2: 4")),
+         taves_ctry = factor(taves_ctry,
+                             levels = c("US", "Ghana", "Thailand",
+                                        "China", "Vanuatu"))) %>%
+  select(taves_ctry, level1, level2, level2uncommon, level2common, level3, 
+         cluster, question, question_text, prev_US, 
+         starts_with("prev"), starts_with("app"), starts_with("sig"),
+         starts_with("val"))
 ```
 
 ```{r, fig.width = 6, fig.asp = 0.8}
-temp_df %>%
+df_all_resp %>%
   ggplot(aes(x = question, y = prev_mean, color = taves_ctry, label = prev_n)) +
   facet_grid(cols = vars(level1, level2, cluster), 
              rows = vars(taves_ctry), 
@@ -81,7 +1336,7 @@ temp_df %>%
   theme_bw() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
         legend.position = "none") +
-  labs(title = "Clustering with all variables PREVALENCE: Proportion of participants who endorsed experience",
+  labs(title = "PREVALENCE: Proportion of participants who endorsed experience",
        subtitle = "By site (rows), question (x-axis), and levels 1-2 grouping of clusters (columns)\nNumbers for each question indicate the total number of participants from that site who responded to that question; error bars are 95% bootstrapped CIs",
        x = "Question",
        y = "Prevalence (0-1)", color = "Site")
@@ -89,7 +1344,7 @@ temp_df %>%
 
 <P style="page-break-before: always">
 ```{r, fig.width = 6, fig.asp = 0.8}
-temp_df %>%
+df_all_resp %>%
   ggplot(aes(x = question, y = app_mean, color = taves_ctry, label = app_n)) +
   facet_grid(cols = vars(level1, level2, cluster), 
              rows = vars(taves_ctry), 
@@ -102,7 +1357,7 @@ temp_df %>%
   theme_bw() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
         legend.position = "none") +
-  labs(title = "Clustering with all variables APPRAISAL: Mean response to whether the participant appraised experience as religious/spiritual",
+  labs(title = "APPRAISAL: Mean response to whether the participant appraised experience as religious/spiritual",
        subtitle = "By site (rows), question (x-axis), and levels 1-2 grouping of clusters (columns)\nNumbers for each question indicate the total number of participants from that site who responded to that question; error bars are 95% bootstrapped CIs",
        x = "Question",
        y = "Appraisal (-1: no, 0: unsure, +1: yes)", color = "Site")
@@ -110,7 +1365,7 @@ temp_df %>%
 
 <P style="page-break-before: always">
 ```{r, fig.width = 6, fig.asp = 0.8}
-temp_df %>%
+df_all_resp %>%
   ggplot(aes(x = question, y = val_mean, color = taves_ctry, label = val_n)) +
   facet_grid(cols = vars(level1, level2, cluster), 
              rows = vars(taves_ctry), 
@@ -123,36 +1378,15 @@ temp_df %>%
   theme_bw() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
         legend.position = "none") +
-  labs(title = "Clustering with all variables VALENCE: Mean response to whether experience was considered positive/negative",
+  labs(title = "VALENCE: Mean response to whether experience was considered positive/negative",
        subtitle = "By site (rows), question (x-axis), and levels 1-2 grouping of clusters (columns)\nNumbers for each question indicate the total number of participants from that site who responded to that question; error bars are 95% bootstrapped CIs",
        x = "Question",
        y = "Valence (-1: negative, 0: neutral, +1: positive)", color = "Site")
 ```
 
-```{r, fig.width = 6, fig.asp = 0.8}
-temp_df %>%
-  ggplot(aes(x = question, y = abs_val_mean, color = taves_ctry, label = val_n)) +
-  facet_grid(cols = vars(level1, level2, cluster), 
-             rows = vars(taves_ctry), 
-             scales = "free_x", space = "free_x") +
-  geom_hline(yintercept = 0.5, lty = 2) +
-  geom_point() +
-  # geom_pointrange(aes(ymin = val_ci_lower, ymax = val_ci_upper)) +
-  geom_text(size = 2, y = 0.05, color = "black") +
-  scale_color_brewer(palette = "Set2") +
-  ylim(0, 1) +
-  theme_bw() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
-        legend.position = "none") +
-  labs(title = "Clustering with all variables ABSOLUTE VALENCE: Mean absolute response to whether experience was considered positive/negative",
-       subtitle = "By site (rows), question (x-axis), and levels 1-2 grouping of clusters (columns)\nNumbers for each question indicate the total number of participants from that site who responded to that question; error bars are 95% bootstrapped CIs",
-       x = "Question",
-       y = "Valence (0: neutral, 1: negative/positive)", color = "Site")
-```
-
 <P style="page-break-before: always">
 ```{r, fig.width = 6, fig.asp = 0.8}
-temp_df %>%
+df_all_resp %>%
   ggplot(aes(x = question, y = sig_mean, color = taves_ctry, label = sig_n)) +
   facet_grid(cols = vars(level1, level2, cluster), 
              rows = vars(taves_ctry), 
@@ -165,10 +1399,486 @@ temp_df %>%
   theme_bw() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
         legend.position = "none") +
-  labs(title = "Clustering with all variables SIGNIFICANCE: Mean response to how significant experience was considered",
+  labs(title = "SIGNIFICANCE: Mean response to how significant experience was considered",
        subtitle = "By site (rows), question (x-axis), and levels 1-2 grouping of clusters (columns)\nNumbers for each question indicate the total number of participants from that site who responded to that question; error bars are 95% bootstrapped CIs",
        x = "Question",
        y = "Significance (0: not, 0.5: somewhat, 1: very)", color = "Site")
 ```
 
+
+<P style="page-break-before: always">
+# Distributions (histograms) of mean responses by question
+
+```{r}
+histo_fun <- function(df, col, 
+                      sites = c("US", "Ghana", "Thailand", "China", "Vanuatu")){
+  
+  df <- df %>%
+    mutate(taves_ctry = factor(taves_ctry, levels = sites))
+
+  xmin <- case_when(col %in% c("prev_mean", "sig_mean") ~ 0,
+                    col %in% c("app_mean", "val_mean") ~ -1)
+  xmax <- 1
+  binw <- (xmax - xmin)/10
+  
+  stats <- df %>%
+    group_by(taves_ctry) %>%
+    summarise(mean = mean(!!sym(col)),
+              median = median(!!sym(col)),
+              var = var(!!sym(col))) %>%
+    ungroup()
+  
+  plot <- df %>%
+    ggplot(aes_string(x = col, fill = "taves_ctry")) +
+    facet_grid(~ taves_ctry) +
+    geom_histogram(binwidth = binw, show.legend = F, color = "black") +
+    geom_text(data = stats,
+              aes(x = xmax + 2.1 * binw, y = 25,
+                  label = paste0("mean: ", 
+                                 format(round(mean, 3), nsmall = 3), 
+                                 "\nmedian: ", 
+                                 format(round(median, 3), nsmall = 3),
+                                 "\nvariance: ", 
+                                 format(round(var, 3), nsmall = 3))),
+              vjust = 1, hjust = 1, size = 3) +
+    scale_fill_brewer(palette = "Dark2") +
+    scale_x_continuous(limits = c(xmin - 2.1 * binw, xmax + 2.1 * binw),
+                       breaks = seq(xmin, xmax, binw * 2)) +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1)) +
+    labs(x = "Mean response for a given question (by site)",
+         y = "Number of questions")
+  
+  return(plot)
+}
+```
+
+```{r}
+density_fun <- function(df, col,
+                        sites = c("US", "Ghana", "Thailand", "China", "Vanuatu")){
+  
+  df <- df %>%
+    mutate(taves_ctry = factor(taves_ctry, levels = sites))
+
+  xmin <- case_when(col %in% c("prev_mean", "sig_mean") ~ 0,
+                    col %in% c("app_mean", "val_mean") ~ -1)
+  xmax <- 1
+  binw <- (xmax - xmin)/10
+  
+  stats <- df %>%
+    group_by(taves_ctry) %>%
+    summarise(mean = mean(!!sym(col)),
+              median = median(!!sym(col)),
+              var = var(!!sym(col))) %>%
+    ungroup()
+  
+  plot <- df %>%
+    ggplot(aes_string(x = col, fill = "taves_ctry", color = "taves_ctry")) +
+    geom_density(alpha = 0.1, size = 1) +
+    scale_fill_brewer(palette = "Dark2") +
+    scale_color_brewer(palette = "Dark2") +
+    scale_x_continuous(limits = c(xmin - 2.1 * binw, xmax + 2.1 * binw),
+                       breaks = seq(xmin, xmax, binw * 2)) +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1)) +
+    labs(x = "Mean response for a given question (by site)",
+         y = "Density (scales with # of questions)",
+         color = "Site", fill = "Site")
+  
+  return(plot)
+}
+```
+
+```{r, fig.width = 5, fig.asp = 0.3}
+histo_fun(df_prevalence, "prev_mean") +
+  labs(title = "PREVALENCE: Distributions of mean responses",
+       x = "Mean proportion of 'yes' responses (by site)")
+```
+
+```{r, fig.width = 5, fig.asp = 0.3}
+density_fun(df_prevalence, "prev_mean") +
+  labs(title = "PREVALENCE: Distributions of mean responses",
+       x = "Mean proportion of 'yes' responses (by site)")
+```
+
+```{r, fig.width = 5, fig.asp = 0.3}
+histo_fun(df_appraisal, "app_mean") +
+  labs(title = "APPRAISAL: Distributions of mean responses")
+```
+
+```{r, fig.width = 5, fig.asp = 0.3}
+density_fun(df_appraisal, "app_mean") +
+  labs(title = "APPRAISAL: Distributions of mean responses")
+```
+
+```{r, fig.width = 5, fig.asp = 0.3}
+histo_fun(df_valence, "val_mean") +
+  labs(title = "VALENCE: Distributions of mean responses")
+```
+
+```{r, fig.width = 5, fig.asp = 0.3}
+density_fun(df_valence, "val_mean") +
+  labs(title = "VALENCE: Distributions of mean responses")
+```
+
+```{r, fig.width = 5, fig.asp = 0.3}
+histo_fun(df_significance, "sig_mean") +
+  labs(title = "SIGNIFICANCE: Distributions of mean responses")
+```
+
+```{r, fig.width = 5, fig.asp = 0.3}
+density_fun(df_significance, "sig_mean") +
+  labs(title = "SIGNIFICANCE: Distributions of mean responses")
+```
+
+
+<P style="page-break-before: always">
+# Religiosity of participants
+
+### "Do you consider yourself a religious or spiritual person?"
+
+```{r, results = "asis"}
+d0 %>% 
+  mutate_all(funs(tolower)) %>%
+  mutate(taves_demo_howr1 = factor(taves_demo_howr1,
+                                   levels = c("not at all", "slightly",
+                                              "somewhat", "very")),
+         taves_ctry = factor(taves_ctry,
+                             levels = c("us", "ghana", "thailand", 
+                                        "china", "vanuatu"))) %>%
+  count(taves_ctry, taves_demo_howr1) %>%
+  group_by(taves_ctry) %>%
+  mutate(prop = n/sum(n)) %>%
+  select(-n) %>%
+  spread(taves_demo_howr1, prop) %>%
+  ungroup() %>%
+  mutate_at(vars(-taves_ctry), funs(round(., 2))) %>%
+  knitr::kable() %>% 
+  kableExtra::kable_styling()
+```
+
+This seems like the most basic question we have about participant religiosity, and one that splits the US sample roughly equally into a less religious group ("not at all" or "slightly") vs. a more religious group ("somewaht" or "very"). **I will use this question to split the US sample, below.**
+
+```{r}
+df_relig <- d0 %>%
+  mutate(taves_demo_howr1 = factor(tolower(taves_demo_howr1),
+                                   levels = c("not at all", "slightly",
+                                              "somewhat", "very"))) %>%
+  mutate(taves_ctry_relig = 
+           case_when(taves_ctry != "US" ~ taves_ctry,
+                     taves_ctry == "US" & taves_demo_howr1 %in%
+                       c("not at all", "slightly") ~ "US, less relig",
+                     taves_ctry == "US" & taves_demo_howr1 %in%
+                       c("somewhat", "very") ~ "US, more relig")) %>%
+  distinct(taves_subj, taves_ctry_relig)
+```
+
+
+### "I consider myself a person of faith"
+
+```{r, results = "asis"}
+d0 %>% 
+  mutate_all(funs(tolower)) %>%
+  mutate(taves_fait = factor(taves_fait,
+                             levels = c("strongly disagree", "disagree",
+                                        "neither agree nor disagree", "agree",
+                                        "strongly agree")),
+         taves_ctry = factor(taves_ctry,
+                             levels = c("us", "ghana", "thailand", 
+                                        "china", "vanuatu"))) %>%
+  count(taves_ctry, taves_fait) %>%
+  group_by(taves_ctry) %>%
+  mutate(prop = n/sum(n)) %>%
+  select(-n) %>%
+  spread(taves_fait, prop) %>%
+  ungroup() %>%
+  mutate_at(vars(-taves_ctry), funs(round(., 2))) %>%
+  knitr::kable() %>% 
+  kableExtra::kable_styling()
+```
+
+I guess we didn't ask this question in the US?
+
+<P style="page-break-before: always">
+### "Do you participate in a religious or spiritual group?"
+
+```{r, results = "asis"}
+d0 %>% 
+  mutate_all(funs(tolower)) %>%
+  mutate(taves_demo_regp = factor(taves_demo_regp,
+                                  levels = c("no", "yes")),
+         taves_ctry = factor(taves_ctry,
+                             levels = c("us", "ghana", "thailand", 
+                                        "china", "vanuatu"))) %>%
+  count(taves_ctry, taves_demo_regp) %>%
+  group_by(taves_ctry) %>%
+  mutate(prop = n/sum(n)) %>%
+  select(-n) %>%
+  spread(taves_demo_regp, prop) %>%
+  ungroup() %>%
+  mutate_at(vars(-taves_ctry), funs(round(., 2))) %>%
+  knitr::kable() %>% 
+  kableExtra::kable_styling()
+```
+
+<P style="page-break-before: always">
+## Overall summaries of prevalence, appraisal, valence, and signifiance, breaking down by religiosity for US participants only
+
+```{r, include = F}
+df_prevalence_relig <- d_base_num %>%
+  rownames_to_column("taves_subj") %>%
+  full_join(df_relig) %>%
+  gather(question, endorsement, -c(taves_subj, taves_ctry_relig)) %>%
+  mutate(question = gsub("_num", "", question)) %>%
+  filter(!is.na(endorsement)) %>%
+  group_by(taves_ctry_relig, question) %>%
+  mutate(prev_n = n()) %>%
+  group_by(prev_n, add = T) %>%
+  multi_boot_standard("endorsement") %>%
+  ungroup() %>%
+  rename(prev_ci_lower = ci_lower,
+         prev_ci_upper = ci_upper,
+         prev_mean = mean)
+
+df_appraisal_relig <- d_appraisal_num2 %>%
+  full_join(df_relig) %>%
+  mutate(question = gsub("._num", "", question)) %>%
+  filter(!is.na(appraisal)) %>%
+  group_by(taves_ctry_relig, level1, level2uncommon, level2common, level3, 
+           cluster, question) %>%
+  mutate(app_n = n()) %>%
+  group_by(app_n, add = T) %>%
+  multi_boot_standard("appraisal") %>%
+  ungroup() %>%
+  rename(app_ci_lower = ci_lower,
+         app_ci_upper = ci_upper,
+         app_mean = mean)
+
+df_valence_relig <- d_valence_num2 %>%
+  full_join(df_relig) %>%
+  mutate(question = gsub("._num", "", question)) %>%
+  filter(!is.na(valence)) %>%
+  group_by(taves_ctry_relig, level1, level2uncommon, level2common, level3, 
+           cluster, question) %>%
+  mutate(val_n = n()) %>%
+  group_by(val_n, add = T) %>%
+  multi_boot_standard("valence") %>%
+  ungroup() %>%
+  rename(val_ci_lower = ci_lower,
+         val_ci_upper = ci_upper,
+         val_mean = mean)
+
+df_significance_relig <- d_significance_num2 %>%
+  full_join(df_relig) %>%
+  mutate(question = gsub("._num", "", question)) %>%
+  filter(!is.na(significance)) %>%
+  group_by(taves_ctry_relig, level1, level2uncommon, level2common, level3, 
+           cluster, question) %>%
+  mutate(sig_n = n()) %>%
+  group_by(sig_n, add = T) %>%
+  multi_boot_standard("significance") %>%
+  ungroup() %>%
+  rename(sig_ci_lower = ci_lower,
+         sig_ci_upper = ci_upper,
+         sig_mean = mean)
+
+df_all_resp_relig <- hclust_df_grouped %>% 
+  distinct(question, question_text, US_prev,  
+           level1, level2uncommon, level2common, level3, cluster) %>%
+  rename(prev_US = US_prev) %>%
+  full_join(df_prevalence_relig) %>%
+  full_join(df_appraisal_relig) %>%
+  full_join(df_valence_relig) %>%
+  full_join(df_significance_relig) %>%
+  mutate(level2 = ifelse(is.na(level2uncommon), 
+                         as.character(level2common), 
+                         as.character(level2uncommon)),
+         cluster = factor(cluster,
+                          levels = c("8", "5", "1", "3", "2",
+                                     "6", "9", "7", "4"),
+                          labels = c("cluster 8", "cluster 5", "cluster 1",
+                                     "cluster 3", "cluster 2", "cluster 6",
+                                     "cluster 9", "cluster 7 ", "cluster 4")),
+         level1 = factor(level1,
+                         levels = c("85132", "6794"),
+                         labels = c("L1: 85132", "L1: 6794")),
+         level2 = factor(level2,
+                         levels = c("851", "32", "679", "4"),
+                         labels = c("L2: 851", "L2: 32", "L2: 679", "L2: 4")),
+         taves_ctry_relig = factor(taves_ctry_relig,
+                             levels = c("US, less relig", "US, more relig", 
+                                        "Ghana", "Thailand",
+                                        "China", "Vanuatu"))) %>%
+  select(taves_ctry_relig, level1, level2, level2uncommon, level2common, level3, 
+         cluster, question, question_text, prev_US, 
+         starts_with("prev"), starts_with("app"), starts_with("sig"),
+         starts_with("val"))
+```
+
+
+```{r, fig.width = 6, fig.asp = 0.8}
+df_all_resp_relig %>%
+  ggplot(aes(x = question, y = prev_mean, color = taves_ctry_relig, label = prev_n)) +
+  facet_grid(cols = vars(level1, level2, cluster), 
+             rows = vars(taves_ctry_relig), 
+             scales = "free_x", space = "free_x") +
+  geom_hline(yintercept = 0.5, lty = 2) +
+  geom_pointrange(aes(ymin = prev_ci_lower, ymax = prev_ci_upper)) +
+  geom_text(size = 2, y = 0.05, color = "black") +
+  scale_color_manual(values = c("#66c2a5", "#66c2a5", "#fc8d62", 
+                                "#8da0cb", "#e78ac3", "#a6d854")) +
+  ylim(0, 1) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+        legend.position = "none") +
+  labs(title = "PREVALENCE: Proportion of participants who endorsed experience",
+       subtitle = "By site (rows), question (x-axis), and levels 1-2 grouping of clusters (columns)\nNumbers for each question indicate the total number of participants from that site who responded to that question; error bars are 95% bootstrapped CIs",
+       x = "Question",
+       y = "Prevalence (0-1)", color = "Site")
+```
+
+<P style="page-break-before: always">
+```{r, fig.width = 6, fig.asp = 0.8}
+df_all_resp_relig %>%
+  ggplot(aes(x = question, y = app_mean, color = taves_ctry_relig, label = app_n)) +
+  facet_grid(cols = vars(level1, level2, cluster), 
+             rows = vars(taves_ctry_relig), 
+             scales = "free_x", space = "free_x") +
+  geom_hline(yintercept = 0, lty = 2) +
+  geom_pointrange(aes(ymin = app_ci_lower, ymax = app_ci_upper)) +
+  geom_text(size = 2, y = -0.95, color = "black") +
+  scale_color_manual(values = c("#66c2a5", "#66c2a5", "#fc8d62", 
+                                "#8da0cb", "#e78ac3", "#a6d854")) +
+  ylim(-1, 1) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+        legend.position = "none") +
+  labs(title = "APPRAISAL: Mean response to whether the participant appraised experience as religious/spiritual",
+       subtitle = "By site (rows), question (x-axis), and levels 1-2 grouping of clusters (columns)\nNumbers for each question indicate the total number of participants from that site who responded to that question; error bars are 95% bootstrapped CIs",
+       x = "Question",
+       y = "Appraisal (-1: no, 0: unsure, +1: yes)", color = "Site")
+```
+
+<P style="page-break-before: always">
+```{r, fig.width = 6, fig.asp = 0.8}
+df_all_resp_relig %>%
+  ggplot(aes(x = question, y = val_mean, color = taves_ctry_relig, label = val_n)) +
+  facet_grid(cols = vars(level1, level2, cluster), 
+             rows = vars(taves_ctry_relig), 
+             scales = "free_x", space = "free_x") +
+  geom_hline(yintercept = 0, lty = 2) +
+  geom_pointrange(aes(ymin = val_ci_lower, ymax = val_ci_upper)) +
+  geom_text(size = 2, y = -0.95, color = "black") +
+  scale_color_manual(values = c("#66c2a5", "#66c2a5", "#fc8d62", 
+                                "#8da0cb", "#e78ac3", "#a6d854")) +
+  ylim(-1, 1) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+        legend.position = "none") +
+  labs(title = "VALENCE: Mean response to whether experience was considered positive/negative",
+       subtitle = "By site (rows), question (x-axis), and levels 1-2 grouping of clusters (columns)\nNumbers for each question indicate the total number of participants from that site who responded to that question; error bars are 95% bootstrapped CIs",
+       x = "Question",
+       y = "Valence (-1: negative, 0: neutral, +1: positive)", color = "Site")
+```
+
+<P style="page-break-before: always">
+```{r, fig.width = 6, fig.asp = 0.8}
+df_all_resp_relig %>%
+  ggplot(aes(x = question, y = sig_mean, color = taves_ctry_relig, label = sig_n)) +
+  facet_grid(cols = vars(level1, level2, cluster), 
+             rows = vars(taves_ctry_relig), 
+             scales = "free_x", space = "free_x") +
+  geom_hline(yintercept = 0.5, lty = 2) +
+  geom_pointrange(aes(ymin = sig_ci_lower, ymax = sig_ci_upper)) +
+  geom_text(size = 2, y = 0.05, color = "black") +
+  scale_color_manual(values = c("#66c2a5", "#66c2a5", "#fc8d62", 
+                                "#8da0cb", "#e78ac3", "#a6d854")) +
+  ylim(0, 1) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+        legend.position = "none") +
+  labs(title = "SIGNIFICANCE: Mean response to how significant experience was considered",
+       subtitle = "By site (rows), question (x-axis), and levels 1-2 grouping of clusters (columns)\nNumbers for each question indicate the total number of participants from that site who responded to that question; error bars are 95% bootstrapped CIs",
+       x = "Question",
+       y = "Significance (0: not, 0.5: somewhat, 1: very)", color = "Site")
+```
+
+<P style="page-break-before: always">
+## Distributions (histograms) of mean responses by question, breaking down by religiosity for US participants only
+
+```{r, include = F}
+plot_prev_relig <- histo_fun(df_prevalence_relig %>% 
+                               rename(taves_ctry = taves_ctry_relig), 
+          "prev_mean", 
+          sites = c("US, less relig", "US, more relig", 
+                    "Ghana", "Thailand", "China", "Vanuatu")) +
+  labs(title = "PREVALENCE: Distributions of mean responses",
+       x = "Mean proportion of 'yes' responses (by site)") +
+  scale_fill_manual(values = c("#1b9e77", "#1b9e77", "#d95f02",
+                               "#7570b3", "#e7298a", "#66a61e"))
+```
+
+```{r, fig.width = 5, fig.asp = 0.3}
+plot_prev_relig
+```
+
+```{r, include = F}
+plot_app_relig <- histo_fun(df_appraisal_relig %>% 
+                              rename(taves_ctry = taves_ctry_relig), 
+          "app_mean", 
+          sites = c("US, less relig", "US, more relig", 
+                    "Ghana", "Thailand", "China", "Vanuatu")) +
+  labs(title = "APPRAISAL: Distributions of mean responses",
+       x = "Mean proportion of 'yes' responses (by site)") +
+  scale_fill_manual(values = c("#1b9e77", "#1b9e77", "#d95f02",
+                               "#7570b3", "#e7298a", "#66a61e"))
+```
+
+```{r, fig.width = 5, fig.asp = 0.3}
+plot_app_relig
+```
+
+```{r, include = F}
+plot_val_relig <- histo_fun(df_valence_relig %>% 
+                              rename(taves_ctry = taves_ctry_relig), 
+          "val_mean", 
+          sites = c("US, less relig", "US, more relig", 
+                    "Ghana", "Thailand", "China", "Vanuatu")) +
+  labs(title = "VALENCE: Distributions of mean responses",
+       x = "Mean proportion of 'yes' responses (by site)") +
+  scale_fill_manual(values = c("#1b9e77", "#1b9e77", "#d95f02",
+                               "#7570b3", "#e7298a", "#66a61e"))
+```
+
+```{r, fig.width = 5, fig.asp = 0.3}
+plot_val_relig
+```
+
+```{r, include = F}
+plot_sig_relig <- histo_fun(df_significance_relig %>% 
+                              rename(taves_ctry = taves_ctry_relig), 
+          "sig_mean", 
+          sites = c("US, less relig", "US, more relig", 
+                    "Ghana", "Thailand", "China", "Vanuatu")) +
+  labs(title = "SIGNIFICANCE: Distributions of mean responses",
+       x = "Mean proportion of 'yes' responses (by site)") +
+  scale_fill_manual(values = c("#1b9e77", "#1b9e77", "#d95f02",
+                               "#7570b3", "#e7298a", "#66a61e"))
+```
+
+```{r, fig.width = 5, fig.asp = 0.3}
+plot_sig_relig
+```
+
+```{r, include = F}
+temp <- d_base_num %>%
+  rownames_to_column("taves_subj") %>%
+  left_join(df_relig) %>%
+  gather(question, response, ends_with("_num")) %>%
+  filter(grepl("US", taves_ctry_relig))
+
+glmer(response ~ taves_ctry_relig + (1 | taves_subj) + (1 | question), 
+      data = temp) %>%
+  summary()
+```
 
